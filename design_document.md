@@ -186,19 +186,33 @@ interface TaskItem {
         completedAt: string; // Formatted date string
         nextDueDate: string; // Formatted date string
     }>;
+    goalIds?: string[]; // Array of goal IDs
 }
 ```
 
 #### Goal Item
 ```typescript
-interface GoalItem extends TaskItem {
-    targetDate?: string; // Formatted date string
-    milestones?: Array<{
-        id: string;
-        title: string;
-        status: "Not Started" | "Working on it" | "Complete";
-        dueDate?: string; // Formatted date string
+interface GoalItem {
+    id: string;
+    userId: string;
+    type: "goal";
+    title: string;
+    status: "Not Started" | "Working on it" | "Complete";
+    priority: "Very High" | "High" | "Medium" | "Low" | "Very Low";
+    notes?: string;
+    dueDate?: string; // Formatted date string
+    createdAt: string; // Formatted date string
+    updatedAt: string; // Formatted date string
+    categoryId?: string;
+    subcategoryId?: string;
+    isRecurring?: boolean;
+    frequencyInDays?: number;
+    completionHistory?: Array<{
+        completedAt: string; // Formatted date string
+        nextDueDate: string; // Formatted date string
     }>;
+    targetDate?: string; // Formatted date string
+    taskIds?: string[]; // Array of task IDs
 }
 ```
     
