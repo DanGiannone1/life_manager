@@ -122,7 +122,7 @@ TaskDocument:
     is_recurring: boolean, optional
     frequency_in_days: number, optional
     completion_history: Array of { completedAt: string, nextDueDate: string }, optional
-    goal_id: string, optional # Reference to a GoalDocument if this task is part of a goal
+    goal_ids: Array<string>, optional # References to GoalDocuments if this task is part of one or more goals
 }
 ```
 
@@ -146,7 +146,7 @@ GoalDocument:
     frequency_in_days: number, optional
     completion_history: Array of { completedAt: string, nextDueDate: string }, optional
     target_date: string, optional # ISO date string
-    milestones: Array of { id: string, title: string, status: "not_started" | "working_on_it" | "complete", dueDate: string, optional }, optional
+    task_ids: Array<string>, optional # References to TaskDocuments that are part of this goal
 }
 ```
     
