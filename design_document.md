@@ -122,12 +122,29 @@ TaskDocument:
     is_recurring: boolean, optional
     frequency_in_days: number, optional
     completion_history: Array of { completedAt: string, nextDueDate: string }, optional
+    goal_id: string, optional # Reference to a GoalDocument if this task is part of a goal
 }
 ```
 
 #### Goal Document Schema
 ```
-GoalDocument: extends TaskDocument
+GoalDocument:
+    id: string
+    user_id: string
+    type: "goal"
+    title: string
+    status: "not_started" | "working_on_it" | "complete"
+    priority: int # 0-100
+    dynamic_priority: int # 0-100
+    notes: string, optional
+    due_date: string, optional # ISO date string
+    created_at: string # ISO date string
+    updated_at: string # ISO date string
+    category_id: string, optional
+    subcategory_id: string, optional
+    is_recurring: boolean, optional
+    frequency_in_days: number, optional
+    completion_history: Array of { completedAt: string, nextDueDate: string }, optional
     target_date: string, optional # ISO date string
     milestones: Array of { id: string, title: string, status: "not_started" | "working_on_it" | "complete", dueDate: string, optional }, optional
 }
