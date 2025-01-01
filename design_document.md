@@ -107,22 +107,22 @@ The main page will be blank for now. There will be a sidebar to navigate to the 
 ```
 TaskDocument:
     id: string
-    user_id: string
+    userId: string
     type: "task" | "goal"
     title: string
     status: "not_started" | "working_on_it" | "complete"
     priority: int # 0-100
-    dynamic_priority: int # 0-100
+    dynamicPriority: int # 0-100
     notes: string, optional
-    due_date: string, optional # ISO date string
-    created_at: string # ISO date string
-    updated_at: string # ISO date string
-    category_id: string, optional
-    subcategory_id: string, optional
-    is_recurring: boolean, optional
-    frequency_in_days: number, optional
-    completion_history: Array of { completedAt: string, nextDueDate: string }, optional
-    goal_ids: Array<string>, optional # References to GoalDocuments if this task is part of one or more goals
+    dueDate: string, optional # ISO date string
+    createdAt: string # ISO date string
+    updatedAt: string # ISO date string
+    categoryId: string, optional
+    subcategoryId: string, optional
+    isRecurring: boolean, optional
+    frequencyInDays: number, optional
+    completionHistory: Array of { completedAt: string, nextDueDate: string }, optional
+    goalIds: Array<string>, optional # References to GoalDocuments if this task is part of one or more goals
 }
 ```
 
@@ -130,23 +130,23 @@ TaskDocument:
 ```
 GoalDocument:
     id: string
-    user_id: string
+    userId: string
     type: "goal"
     title: string
     status: "not_started" | "working_on_it" | "complete"
     priority: int # 0-100
-    dynamic_priority: int # 0-100
+    dynamicPriority: int # 0-100
     notes: string, optional
-    due_date: string, optional # ISO date string
-    created_at: string # ISO date string
-    updated_at: string # ISO date string
-    category_id: string, optional
-    subcategory_id: string, optional
-    is_recurring: boolean, optional
-    frequency_in_days: number, optional
-    completion_history: Array of { completedAt: string, nextDueDate: string }, optional
-    target_date: string, optional # ISO date string
-    task_ids: Array<string>, optional # References to TaskDocuments that are part of this goal
+    dueDate: string, optional # ISO date string
+    createdAt: string # ISO date string
+    updatedAt: string # ISO date string
+    categoryId: string, optional
+    subcategoryId: string, optional
+    isRecurring: boolean, optional
+    frequencyInDays: number, optional
+    completionHistory: Array of { completedAt: string, nextDueDate: string }, optional
+    targetDate: string, optional # ISO date string
+    associatedTaskIds: Array<string>, optional # References to TaskDocuments that are part of this goal
 }
 ```
     
@@ -156,7 +156,7 @@ GoalDocument:
 ```
 CategoryDocument:
     id: string;
-    user_id: string;
+    userId: string;
     name: string;
     color: string, optional
     subcategories: Array of { id: string, name: string }, optional
