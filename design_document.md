@@ -156,14 +156,14 @@ interface TaskItem {
     status: "Not Started" | "Working on it" | "Complete";
     priority: "Very High" | "High" | "Medium" | "Low" | "Very Low";
     notes?: string;
-    due_date?: string; // Formatted date string 
-    created_at: string; // Formatted date string 
-    updated_at: string; // Formatted date string 
+    dueDate?: string; // Formatted date string
+    createdAt: string; // Formatted date string
+    updatedAt: string; // Formatted date string
     categoryId?: string;
     subcategoryId?: string;
     isRecurring?: boolean;
     frequencyInDays?: number;
-    completionHistory?: Array<{ 
+    completionHistory?: Array<{
         completedAt: string; // Formatted date string
         nextDueDate: string; // Formatted date string
     }>;
@@ -172,10 +172,10 @@ interface TaskItem {
 
 #### Goal Item
 ```typescript
-interface GoalItem extends TaskItem { 
-    targetDate?: string; // Formatted date string 
+interface GoalItem extends TaskItem {
+    targetDate?: string; // Formatted date string
     milestones?: Array<{
-        id: string; 
+        id: string;
         title: string;
         status: "Not Started" | "Working on it" | "Complete";
         dueDate?: string; // Formatted date string
@@ -186,11 +186,11 @@ interface GoalItem extends TaskItem {
 
 #### Category Item
 ```typescript
-interface CategoryItem { 
+interface CategoryItem {
     id: string;
-    userId: string; 
+    userId: string;
     name: string;
-    color?: string; 
+    color?: string;
     subcategories?: Array<{
         id: string;
         name: string;
