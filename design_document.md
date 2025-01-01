@@ -30,16 +30,11 @@ TaskDocument:
 }
 ```
 
-#### Goal Document
-```typescript
-interface GoalDocument extends TaskDocument { 
-    target_date?: string; // ISO date string
-    milestones?: Array<{
-        id: string; 
-        title: string;
-        status: "not_started" | "working_on_it" | "complete";
-        dueDate?: string;
-    }>;
+#### Goal Document Schema
+```
+GoalDocument: extends TaskDocument
+    target_date: string, optional # ISO date string
+    milestones: Array of { id: string, title: string, status: "not_started" | "working_on_it" | "complete", dueDate: string, optional }, optional
 }
 ```
     
