@@ -20,8 +20,9 @@ The main page will be blank for now. There will be a sidebar to navigate to the 
 
 
 
-## Project Structure 
+## Project Structure
 
+```
 .
 ├── backend
 │   ├── app.py
@@ -75,6 +76,7 @@ The main page will be blank for now. There will be a sidebar to navigate to the 
     │           └── switch.tsx
     ├── tailwind.config.ts
     └── tsconfig.json
+```
 
 
 ## Tech Stack
