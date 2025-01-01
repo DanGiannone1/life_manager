@@ -4,7 +4,100 @@
 
 This document outlines the design for the Life Manager application, including data models, API endpoints, and other key considerations.
 
-## 2. Data Model
+This is a personal project to help me manage my life. The main goal is to help me manage my tasks and goals and stay organized and productive. 
+
+
+## Main Features & Components
+
+
+1. Home Page - blank for now.
+2. Weekly Plan Page - blank for now.
+3. Master List Page - Shows all items (tasks and goals). Ability to filter and sort. Ability to add new tasks and goals. 
+    a. Item Card - Main UI component for displaying an item. Shows various fields from the data model. 
+4. Sidebar - Navigation to different pages.
+
+The main page will be blank for now. There will be a sidebar to navigate to the different pages.
+
+
+
+## Project Structure 
+
+.
+├── backend
+│   ├── app.py
+│   ├── cosmos_db.py
+│   └── requirements.txt
+└── frontend
+    ├── .gitignore
+    ├── components.json
+    ├── eslint.config.mjs
+    ├── next.config.ts
+    ├── package-lock.json
+    ├── package.json
+    ├── postcss.config.mjs
+    ├── public
+    │   ├── branding
+    │   │   ├── next.svg
+    │   │   └── vercel.svg
+    │   ├── icons
+    │   │   ├── favicon.ico
+    │   │   └── site.webmanifest
+    │   └── images
+    │       ├── file.svg
+    │       ├── globe.svg
+    │       └── window.svg
+    ├── src
+    │   ├── app
+    │   │   ├── globals.css
+    │   │   ├── home
+    │   │   │   └── page.tsx
+    │   │   ├── layout.tsx
+    │   │   ├── master-list
+    │   │   │   └── page.tsx
+    │   │   ├── page.tsx
+    │   │   ├── sidebar
+    │   │   │   └── sidebar.tsx
+    │   │   └── weekly-plan
+    │   │       └── page.tsx
+    │   └── components
+    │       ├── items
+    │       │   ├── add-item-dialog.tsx
+    │       │   └── item-filters.tsx
+    │       └── ui
+    │           ├── badge.tsx
+    │           ├── button.tsx
+    │           ├── card.tsx
+    │           ├── checkbox.tsx
+    │           ├── dialog.tsx
+    │           ├── input.tsx
+    │           ├── label.tsx
+    │           ├── select.tsx
+    │           └── switch.tsx
+    ├── tailwind.config.ts
+    └── tsconfig.json
+
+
+## Tech Stack
+
+### Backend
+
+- Python
+- Flask
+
+### Frontend
+
+- React
+- NextJS
+- TailwindCSS Styling
+- Shadcn Components
+- Lucide Icons
+
+### Database
+
+- CosmosDB
+
+
+## 3. Data Model
 
 ### Backend Data Models (Python/CosmosDB)
 
