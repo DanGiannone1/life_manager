@@ -168,12 +168,13 @@ CategoryDocument:
 #### Task Item
 ```typescript
 interface TaskItem {
-    id: string; 
-    userId: string; 
+    id: string;
+    userId: string;
     type: "task" | "goal";
     title: string;
     status: "Not Started" | "Working on it" | "Complete";
-    priority: "Very High" | "High" | "Medium" | "Low" | "Very Low";
+    priority: number; // Keep the numerical priority
+    displayPriority: "Very High" | "High" | "Medium" | "Low" | "Very Low"; // Add display priority
     notes?: string;
     dueDate?: string; // Formatted date string
     createdAt: string; // Formatted date string
@@ -198,7 +199,8 @@ interface GoalItem {
     type: "goal";
     title: string;
     status: "Not Started" | "Working on it" | "Complete";
-    priority: "Very High" | "High" | "Medium" | "Low" | "Very Low";
+    priority: number; // Keep the numerical priority
+    displayPriority: "Very High" | "High" | "Medium" | "Low" | "Very Low"; // Add display priority
     notes?: string;
     dueDate?: string; // Formatted date string
     createdAt: string; // Formatted date string
@@ -235,8 +237,8 @@ interface CategoryItem {
 
 The following functions will be used to map between backend and frontend data models:
 
-*   `mapTaskDocumentToTaskItem` (handles `snake_case` to `camelCase`, status and priority conversions)
-*   `mapGoalDocumentToGoalItem` (handles `snake_case` to `camelCase`, status and priority conversions)
+*   `mapTaskDocumentToTaskItem` (handles `snake_case` to `camelCase`, status and priority conversions, and maps numerical priority to display priority)
+*   `mapGoalDocumentToGoalItem` (handles `snake_case` to `camelCase`, status and priority conversions, and maps numerical priority to display priority)
 *   `mapCategoryDocumentToCategoryItem` (handles `snake_case` to `camelCase`)
 
 These functions will handle data transformations, formatting, and any other necessary conversions.
