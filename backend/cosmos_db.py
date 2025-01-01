@@ -151,6 +151,17 @@ class CosmosDBManager:
             print(f"An error occurred during deletion: {e.message}")
             return False
 
+    def get_items_by_user_id(self, user_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all items for a specific user.
+
+        :param user_id: The user's ID
+        :return: List of items belonging to the user
+        """
+        query = "SELECT * FROM c WHERE c.userId = @userId"
+        parameters = [{"name": "@userId", "value": user_id}]
+        return self.query_items(query, parameters, partition_key=user_id)
+
 def example_create_item():
     cosmos_db = CosmosDBManager()
     new_item = {

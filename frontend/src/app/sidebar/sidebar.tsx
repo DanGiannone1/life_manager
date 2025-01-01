@@ -10,19 +10,19 @@ const routes = [
     label: "Home",
     icon: Home,
     href: "/home",
-    color: "text-sky-500",
+    className: "sidebar-icon home"
   },
   {
     label: "Weekly Plan",
     icon: Calendar,
     href: "/weekly-plan",
-    color: "text-violet-500",
+    className: "sidebar-icon weekly"
   },
   {
     label: "Master List",
     icon: List,
     href: "/master-list",
-    color: "text-pink-500",
+    className: "sidebar-icon master"
   },
 ];
 
@@ -30,10 +30,10 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-zinc-900">
+    <div className="sidebar flex h-full flex-col overflow-y-auto">
       <div className="flex flex-col gap-4 p-6">
         <Link href="/home" className="flex items-center gap-2">
-          <h1 className="text-2xl font-semibold text-white">
+          <h1 className="text-2xl font-semibold">
             Life Manager
           </h1>
         </Link>
@@ -45,11 +45,11 @@ export function Sidebar() {
               className={cn(
                 "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 pathname === route.href 
-                  ? "bg-zinc-800 text-white" 
-                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-white"
+                  ? "bg-[#00AEFF]/10 text-[--text-primary]" 
+                  : "text-[--text-secondary] hover:text-[--text-primary] hover:bg-[#00AEFF]/5"
               )}
             >
-              <route.icon className={cn("h-5 w-5", route.color)} />
+              <route.icon className={route.className} />
               {route.label}
             </Link>
           ))}
