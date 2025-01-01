@@ -15,12 +15,13 @@ interface TaskDocument {
     userId: string;
     type: "task" | "goal";
     title: string;
-    status: "not_started" | "in_progress" | "complete";
-    priority: "very_high" | "high" | "medium" | "low" | "very_low";
+    status: "not_started" | "working_on_it" | "complete";
+    priority: int; # 0-100
+    dynamic_priority: int; # 0-100
     notes?: string;
-    dueDate?: string; // ISO date string
-    createdAt: string; // ISO date string
-    updatedAt: string; // ISO date string
+    due_date?: string; # ISO date string
+    created_at: string; # ISO date string
+    updated_at: string; # ISO date string
     categoryId?: string;
     subcategoryId?: string;
     isRecurring?: boolean;
@@ -39,11 +40,13 @@ interface GoalDocument extends TaskDocument {
     milestones?: Array<{
         id: string;
         title: string;
-        status: "not_started" | "in_progress" | "complete";
+        status: "not_started" | "working_on_it" | "complete";
         dueDate?: string;
     }>;
 }
 ```
+    
+    
 
 #### Category Document
 ```typescript
@@ -71,9 +74,9 @@ interface TaskItem {
     status: "Not Started" | "Working on it" | "Complete";
     priority: "Very High" | "High" | "Medium" | "Low" | "Very Low";
     notes?: string;
-    dueDate?: string; // Formatted date string
-    createdAt: string; // Formatted date string
-    updatedAt: string; // Formatted date string
+    due_date?: string; // Formatted date string
+    created_at: string; // Formatted date string
+    updated_at: string; // Formatted date string
     categoryId?: string;
     subcategoryId?: string;
     isRecurring?: boolean;
@@ -97,6 +100,7 @@ interface GoalItem extends TaskItem {
     }>;
 }
 ```
+    
 
 #### Category Item
 ```typescript
@@ -116,15 +120,17 @@ interface CategoryItem {
 
 The following functions will be used to map between backend and frontend data models:
 
-*   `mapTaskDocumentToTaskItem`
-*   `mapGoalDocumentToGoalItem`
-*   `mapCategoryDocumentToCategoryItem`
+*   `mapTaskDocumentToTaskItem` (handles `snake_case` to `camelCase`, status and priority conversions)
+*   `mapGoalDocumentToGoalItem` (handles `snake_case` to `camelCase`, status and priority conversions)
+*   `mapCategoryDocumentToCategoryItem` (handles `snake_case` to `camelCase`)
 
 These functions will handle data transformations, formatting, and any other necessary conversions.
 
 ### Data Transfer Contract
 
 The data models defined above, along with the mapping functions, form the contract between the frontend and backend. Any changes to these models or functions should be carefully considered and communicated between teams.
+    
+    
 
 ## 3. UI Constants
 
@@ -136,6 +142,7 @@ Medium: #808080
 Low: #00DE94
 Very Low: #B0B0B0
 ```
+    
 
 ### Status Colors
 ```css
@@ -143,6 +150,7 @@ Not Started: #808080
 Working on it: #F5B800
 Complete: #00DE94
 ```
+    
 
 ## 4. API Endpoints
 
@@ -170,6 +178,7 @@ Request Body:
     }>;
 }
 ```
+    
 A maximum of 100 items can be updated in a single batch request. If one update in the batch fails, the entire batch will be rolled back.
 
 ### POST /api/items
@@ -219,3 +228,4 @@ There is no limit on the number of milestones for a goal. Milestones have the sa
 
 *   The `updatedAt` field is automatically updated on every change to the document.
 *   IDs are generated using UUIDs (version 4).
+*   Batch update limits and behavior
