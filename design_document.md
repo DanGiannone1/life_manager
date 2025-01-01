@@ -8,28 +8,25 @@ This document outlines the design for the Life Manager application, including da
 
 ### Backend Data Models (Python/CosmosDB)
 
-#### Task Document
-```typescript
-interface TaskDocument {
-    id: string;
-    user_id: string;
-    type: "task" | "goal";
-    title: string;
-    status: "not_started" | "working_on_it" | "complete";
-    priority: int; # 0-100
-    dynamic_priority: int; # 0-100 
-    notes?: string;
-    due_date?: string; # ISO date string
-    created_at: string; # ISO date string
-    updated_at: string; # ISO date string
-    category_id?: string;
-    subcategory_id?: string;
-    is_recurring?: boolean;
-    frequency_in_days?: number;
-    completion_history?: Array<{
-        completedAt: string;
-        nextDueDate: string;
-    }>;
+#### Task Document Schema
+```
+TaskDocument:
+    id: string
+    user_id: string
+    type: "task" | "goal"
+    title: string
+    status: "not_started" | "working_on_it" | "complete"
+    priority: int # 0-100
+    dynamic_priority: int # 0-100
+    notes: string, optional
+    due_date: string, optional # ISO date string
+    created_at: string # ISO date string
+    updated_at: string # ISO date string
+    category_id: string, optional
+    subcategory_id: string, optional
+    is_recurring: boolean, optional
+    frequency_in_days: number, optional
+    completion_history: Array of { completedAt: string, nextDueDate: string }, optional
 }
 ```
 
@@ -47,18 +44,15 @@ interface GoalDocument extends TaskDocument {
 ```
     
     
-
-#### Category Document
-```typescript
-interface CategoryDocument { 
+    
+#### Category Document Schema
+```
+CategoryDocument:
     id: string;
     user_id: string;
     name: string;
-    color?: string;
-    subcategories?: Array<{ 
-        id: string;
-        name: string;
-    }>;
+    color: string, optional
+    subcategories: Array of { id: string, name: string }, optional
 }
 ```
 
