@@ -1,16 +1,22 @@
 # Life Manager Design Document
 
-## Data Model
+## 1. Introduction
 
-### Task Document
+This document outlines the design for the Life Manager application, including data models, API endpoints, and other key considerations.
+
+## 2. Data Model
+
+### Backend Data Models
+
+#### Task Document
 ```typescript
-{
+interface TaskDocument {
     id: string;
     userId: string;
     type: "task" | "goal";
     title: string;
-    status: "Not Started" | "Working on it" | "Complete";
-    priority: "Very High" | "High" | "Medium" | "Low" | "Very Low";
+    status: "not_started" | "in_progress" | "complete";
+    priority: "very_high" | "high" | "medium" | "low" | "very_low";
     notes?: string;
     dueDate?: string; // ISO date string
     createdAt: string; // ISO date string
@@ -26,24 +32,22 @@
 }
 ```
 
-### Goal Document
-Extends the Task document with additional fields:
+#### Goal Document
 ```typescript
-{
-    // ... all Task fields ...
+interface GoalDocument extends TaskDocument {
     targetDate?: string; // ISO date string
     milestones?: Array<{
         id: string;
         title: string;
-        status: "Not Started" | "Working on it" | "Complete";
+        status: "not_started" | "in_progress" | "complete";
         dueDate?: string;
     }>;
 }
 ```
 
-### Category Document
+#### Category Document
 ```typescript
-{
+interface CategoryDocument {
     id: string;
     userId: string;
     name: string;
@@ -55,7 +59,74 @@ Extends the Task document with additional fields:
 }
 ```
 
-## UI Constants
+### Frontend Data Models
+
+#### Task Item
+```typescript
+interface TaskItem {
+    id: string;
+    userId: string;
+    type: "task" | "goal";
+    title: string;
+    status: "Not Started" | "Working on it" | "Complete";
+    priority: "Very High" | "High" | "Medium" | "Low" | "Very Low";
+    notes?: string;
+    dueDate?: string; // Formatted date string
+    createdAt: string; // Formatted date string
+    updatedAt: string; // Formatted date string
+    categoryId?: string;
+    subcategoryId?: string;
+    isRecurring?: boolean;
+    frequencyInDays?: number;
+    completionHistory?: Array<{
+        completedAt: string; // Formatted date string
+        nextDueDate: string; // Formatted date string
+    }>;
+}
+```
+
+#### Goal Item
+```typescript
+interface GoalItem extends TaskItem {
+    targetDate?: string; // Formatted date string
+    milestones?: Array<{
+        id: string;
+        title: string;
+        status: "Not Started" | "Working on it" | "Complete";
+        dueDate?: string; // Formatted date string
+    }>;
+}
+```
+
+#### Category Item
+```typescript
+interface CategoryItem {
+    id: string;
+    userId: string;
+    name: string;
+    color?: string;
+    subcategories?: Array<{
+        id: string;
+        name: string;
+    }>;
+}
+```
+
+### Mapping Functions
+
+The following functions will be used to map between backend and frontend data models:
+
+*   `mapTaskDocumentToTaskItem`
+*   `mapGoalDocumentToGoalItem`
+*   `mapCategoryDocumentToCategoryItem`
+
+These functions will handle data transformations, formatting, and any other necessary conversions.
+
+### Data Transfer Contract
+
+The data models defined above, along with the mapping functions, form the contract between the frontend and backend. Any changes to these models or functions should be carefully considered and communicated between teams.
+
+## 3. UI Constants
 
 ### Priority Colors
 ```css
@@ -73,7 +144,7 @@ Working on it: #F5B800
 Complete: #00DE94
 ```
 
-## API Endpoints
+## 4. API Endpoints
 
 ### GET /api/get-master-list
 Retrieves the master list of items with optional filtering and sorting.
@@ -83,6 +154,9 @@ Query Parameters:
 - `sortBy`: Field to sort by (priority, dueDate, createdAt)
 - `sortDirection`: Sort direction (asc, desc)
 - `type`: Filter by item type (task, goal)
+
+### GET /api/items/{id}
+Retrieves a single item by its ID.
 
 ### PATCH /api/batch-update
 Updates multiple items in a single request.
@@ -96,8 +170,52 @@ Request Body:
     }>;
 }
 ```
+A maximum of 100 items can be updated in a single batch request. If one update in the batch fails, the entire batch will be rolled back.
 
 ### POST /api/items
 Creates a new item.
 
 Request Body: Task or Goal document (without id, createdAt, updatedAt)
+
+### DELETE /api/items/{id}
+Deletes a single item by its ID.
+
+### POST /api/categories
+Creates a new category.
+
+### GET /api/categories
+Retrieves all categories.
+
+### GET /api/categories/{id}
+Retrieves a single category by its ID.
+
+### PATCH /api/categories/{id}
+Updates a category.
+
+### DELETE /api/categories/{id}
+Deletes a category.
+
+## 5. Error Handling
+
+API endpoints will return appropriate HTTP status codes (e.g., 400 for bad requests, 404 for not found, 500 for server errors). Error responses will be in JSON format with an error message.
+
+## 6. Authentication and Authorization
+
+Authentication will be handled using JWT (JSON Web Tokens). Authorization will be based on user roles and permissions.
+
+## 7. Filtering and Sorting
+
+Filters are applied using exact matches for status and type. Sorting is done based on the selected field and direction.
+
+## 8. Recurring Tasks
+
+When a recurring task is completed, a new instance of the task is created with a new due date based on the `frequencyInDays`. The `completionHistory` is updated with the completion date and the next due date.
+
+## 9. Milestones
+
+There is no limit on the number of milestones for a goal. Milestones have the same status values as tasks and goals.
+
+## 10. Other Considerations
+
+*   The `updatedAt` field is automatically updated on every change to the document.
+*   IDs are generated using UUIDs (version 4).
