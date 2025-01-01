@@ -6,27 +6,27 @@ This document outlines the design for the Life Manager application, including da
 
 ## 2. Data Model
 
-### Backend Data Models
+### Backend Data Models (Python/CosmosDB)
 
 #### Task Document
 ```typescript
 interface TaskDocument {
     id: string;
-    userId: string;
+    user_id: string;
     type: "task" | "goal";
     title: string;
     status: "not_started" | "working_on_it" | "complete";
     priority: int; # 0-100
-    dynamic_priority: int; # 0-100
+    dynamic_priority: int; # 0-100 
     notes?: string;
     due_date?: string; # ISO date string
     created_at: string; # ISO date string
     updated_at: string; # ISO date string
-    categoryId?: string;
-    subcategoryId?: string;
-    isRecurring?: boolean;
-    frequencyInDays?: number;
-    completionHistory?: Array<{
+    category_id?: string;
+    subcategory_id?: string;
+    is_recurring?: boolean;
+    frequency_in_days?: number;
+    completion_history?: Array<{
         completedAt: string;
         nextDueDate: string;
     }>;
@@ -35,10 +35,10 @@ interface TaskDocument {
 
 #### Goal Document
 ```typescript
-interface GoalDocument extends TaskDocument {
-    targetDate?: string; // ISO date string
+interface GoalDocument extends TaskDocument { 
+    target_date?: string; // ISO date string
     milestones?: Array<{
-        id: string;
+        id: string; 
         title: string;
         status: "not_started" | "working_on_it" | "complete";
         dueDate?: string;
@@ -50,12 +50,12 @@ interface GoalDocument extends TaskDocument {
 
 #### Category Document
 ```typescript
-interface CategoryDocument {
+interface CategoryDocument { 
     id: string;
-    userId: string;
+    user_id: string;
     name: string;
     color?: string;
-    subcategories?: Array<{
+    subcategories?: Array<{ 
         id: string;
         name: string;
     }>;
@@ -67,21 +67,21 @@ interface CategoryDocument {
 #### Task Item
 ```typescript
 interface TaskItem {
-    id: string;
-    userId: string;
+    id: string; 
+    userId: string; 
     type: "task" | "goal";
     title: string;
     status: "Not Started" | "Working on it" | "Complete";
     priority: "Very High" | "High" | "Medium" | "Low" | "Very Low";
     notes?: string;
-    due_date?: string; // Formatted date string
-    created_at: string; // Formatted date string
-    updated_at: string; // Formatted date string
+    due_date?: string; // Formatted date string 
+    created_at: string; // Formatted date string 
+    updated_at: string; // Formatted date string 
     categoryId?: string;
     subcategoryId?: string;
     isRecurring?: boolean;
     frequencyInDays?: number;
-    completionHistory?: Array<{
+    completionHistory?: Array<{ 
         completedAt: string; // Formatted date string
         nextDueDate: string; // Formatted date string
     }>;
@@ -90,10 +90,10 @@ interface TaskItem {
 
 #### Goal Item
 ```typescript
-interface GoalItem extends TaskItem {
-    targetDate?: string; // Formatted date string
+interface GoalItem extends TaskItem { 
+    targetDate?: string; // Formatted date string 
     milestones?: Array<{
-        id: string;
+        id: string; 
         title: string;
         status: "Not Started" | "Working on it" | "Complete";
         dueDate?: string; // Formatted date string
@@ -104,11 +104,11 @@ interface GoalItem extends TaskItem {
 
 #### Category Item
 ```typescript
-interface CategoryItem {
+interface CategoryItem { 
     id: string;
-    userId: string;
+    userId: string; 
     name: string;
-    color?: string;
+    color?: string; 
     subcategories?: Array<{
         id: string;
         name: string;
