@@ -96,7 +96,7 @@
   }
 
   .grid-header {
-    @apply grid grid-cols-[1fr,140px,120px,120px,120px] gap-4
+    @apply grid grid-cols-[1fr_200px_135px_120px_120px_120px_40px] gap-4
            px-4 py-3 bg-gray-50 border-b border-gray-200;
   }
 
@@ -113,7 +113,7 @@
   }
 
   .grid-row {
-    @apply grid grid-cols-[1fr,140px,120px,120px,120px] gap-4
+    @apply grid grid-cols-[1fr_200px_135px_120px_120px_120px_40px] gap-4
            px-4 py-3 hover:bg-gray-50 transition-colors
            items-center;
   }
@@ -244,7 +244,7 @@
   }
 
   .select-trigger-no-border svg {
-    @apply text-white opacity-80;
+    @apply text-gray-700 opacity-80;
   }
 
   .select-content-rounded {
@@ -253,5 +253,10 @@
 
   .select-item-hover {
     @apply hover:bg-gray-50/50 cursor-pointer px-3 py-1.5;
+  }
+
+  /* Status Select */
+  .status-select-trigger {
+    @apply min-w-[135px];
   }
 }

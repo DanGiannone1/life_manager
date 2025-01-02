@@ -10,6 +10,61 @@ The task page will be the second page. It will have a main grid area for tasks. 
 We should have a data model in cosmos DB. When we mark a recurring task completed, it should be marked as completed for the current date and then it should show back up once the elapsed time since last completion is greater than the frequency of the task. 
 
 
+.
+├── backend
+│   ├── app.py
+│   ├── cosmos_db.py
+│   └── requirements.txt
+└── frontend
+    ├── .gitignore
+    ├── components.json
+    ├── eslint.config.mjs
+    ├── next.config.ts
+    ├── package-lock.json
+    ├── package.json
+    ├── postcss.config.mjs
+    ├── public
+    │   ├── branding
+    │   │   ├── next.svg
+    │   │   └── vercel.svg
+    │   ├── icons
+    │   │   ├── favicon.ico
+    │   │   └── site.webmanifest
+    │   └── images
+    │       ├── file.svg
+    │       ├── globe.svg
+    │       └── window.svg
+    ├── src
+    │   ├── app
+    │   │   ├── globals.css
+    │   │   ├── home
+    │   │   │   └── page.tsx
+    │   │   ├── layout.tsx
+    │   │   ├── master-list
+    │   │   │   └── page.tsx
+    │   │   ├── page.tsx
+    │   │   ├── sidebar
+    │   │   │   └── sidebar.tsx
+    │   │   └── weekly-plan
+    │   │       └── page.tsx
+    │   └── components
+    │       ├── items
+    │       │   ├── add-item-dialog.tsx
+    │       │   └── item-filters.tsx
+    │       └── ui
+    │           ├── badge.tsx
+    │           ├── button.tsx
+    │           ├── card.tsx
+    │           ├── checkbox.tsx
+    │           ├── dialog.tsx
+    │           ├── input.tsx
+    │           ├── label.tsx
+    │           ├── select.tsx
+    │           └── switch.tsx
+    ├── tailwind.config.ts
+    └── tsconfig.json
+
+
 ## Tech Stack
 
 ### Backend

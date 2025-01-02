@@ -16,10 +16,18 @@ export function AddItemDialog({ open, onOpenChange, onItemAdded }: AddItemDialog
         status: 'Not Started',
         priority: 'Medium',
         notes: '',
+        dueDate: '',
         isRecurring: false,
         frequencyInDays: 0,
-        dueDate: '',
-        description: ''
+        categoryId: '',
+        subcategoryId: '',
+        // Goal-specific fields
+        targetDate: '',
+        // Task-specific fields
+        goalIds: [] as string[],
+        // Arrays initialized empty
+        completionHistory: [] as Array<{ completedAt: string, nextDueDate: string }>,
+        associatedTaskIds: [] as string[]
     });
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -38,7 +46,8 @@ export function AddItemDialog({ open, onOpenChange, onItemAdded }: AddItemDialog
             });
 
             if (!response.ok) {
-                throw new Error('Failed to create item');
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to create item');
             }
 
             const data = await response.json();
@@ -46,8 +55,27 @@ export function AddItemDialog({ open, onOpenChange, onItemAdded }: AddItemDialog
             onOpenChange(false);
             onItemAdded?.();
             
+            // Reset form
+            setFormData({
+                title: '',
+                type: 'task',
+                status: 'Not Started',
+                priority: 'Medium',
+                notes: '',
+                dueDate: '',
+                isRecurring: false,
+                frequencyInDays: 0,
+                categoryId: '',
+                subcategoryId: '',
+                targetDate: '',
+                goalIds: [],
+                completionHistory: [],
+                associatedTaskIds: []
+            });
+            
         } catch (error) {
             console.error('Error creating item:', error);
+            alert(error instanceof Error ? error.message : 'Failed to create item');
         }
     };
 
@@ -149,10 +177,11 @@ export function AddItemDialog({ open, onOpenChange, onItemAdded }: AddItemDialog
                     )}
                     {formData.type === 'goal' && (
                         <div>
-                            <label className="block text-sm font-medium mb-1">Description</label>
+                            <label className="block text-sm font-medium mb-1">Target Date</label>
                             <Input
-                                name="description"
-                                value={formData.description}
+                                type="date"
+                                name="targetDate"
+                                value={formData.targetDate}
                                 onChange={handleInputChange}
                             />
                         </div>

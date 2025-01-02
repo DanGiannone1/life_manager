@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 
 export interface FilterOptions {
-    statuses: ('not_started' | 'in_progress' | 'complete')[];
+    statuses: ('Not Started' | 'Working On It' | 'Complete')[];
     sortBy: 'priority' | 'dueDate' | 'createdAt';
     sortDirection: 'asc' | 'desc';
     type?: 'all' | 'task' | 'goal';
@@ -37,8 +37,8 @@ export function ItemFilters({ filters, onFiltersChange }: ItemFiltersProps) {
                         <div className="flex items-center space-x-3">
                             <Checkbox 
                                 id="not_started"
-                                checked={filters.statuses.includes('not_started')}
-                                onCheckedChange={() => toggleStatus('not_started')}
+                                checked={filters.statuses.includes('Not Started')}
+                                onCheckedChange={() => toggleStatus('Not Started')}
                                 className="border-gray-200 data-[state=checked]:bg-blue-500 data-[state=checked]:text-white"
                             />
                             <label 
@@ -50,23 +50,23 @@ export function ItemFilters({ filters, onFiltersChange }: ItemFiltersProps) {
                         </div>
                         <div className="flex items-center space-x-3">
                             <Checkbox 
-                                id="in_progress"
-                                checked={filters.statuses.includes('in_progress')}
-                                onCheckedChange={() => toggleStatus('in_progress')}
+                                id="working_on_it"
+                                checked={filters.statuses.includes('Working On It')}
+                                onCheckedChange={() => toggleStatus('Working On It')}
                                 className="border-gray-200 data-[state=checked]:bg-blue-500 data-[state=checked]:text-white"
                             />
                             <label 
-                                htmlFor="in_progress"
+                                htmlFor="working_on_it"
                                 className="text-sm font-medium text-gray-700"
                             >
-                                In Progress
+                                Working On It
                             </label>
                         </div>
                         <div className="flex items-center space-x-3">
                             <Checkbox 
                                 id="complete"
-                                checked={filters.statuses.includes('complete')}
-                                onCheckedChange={() => toggleStatus('complete')}
+                                checked={filters.statuses.includes('Complete')}
+                                onCheckedChange={() => toggleStatus('Complete')}
                                 className="border-gray-200 data-[state=checked]:bg-blue-500 data-[state=checked]:text-white"
                             />
                             <label 

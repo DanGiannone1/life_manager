@@ -67,7 +67,10 @@ class CosmosDBManager:
 
     def _create_or_get_container(self) -> ContainerProxy:
         try:
-            container = self.database.create_container(id=self.cosmos_container_id, partition_key=PartitionKey(path='/partitionKey'))
+            container = self.database.create_container(
+                id=self.cosmos_container_id, 
+                partition_key=PartitionKey(path='/user_id')
+            )
             print(f'Container with id \'{self.cosmos_container_id}\' created')
         except exceptions.CosmosResourceExistsError:
             container = self.database.get_container_client(self.cosmos_container_id)
@@ -92,20 +95,42 @@ class CosmosDBManager:
             print(f"An error occurred during creation: {e.message}")
             return None
 
-    def update_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+    def update_item(self, item_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Update an existing item in the container. Fails if the item doesn't exist.
+        Update specific fields of an existing item in the container.
 
-        :param item: The item to update (must include 'id' and 'partitionKey')
+        :param item_id: The ID of the item to update
+        :param updates: Dictionary of fields to update
         :return: The updated item, or None if update failed
         """
         try:
-            updated_item = self.container.replace_item(item=item['id'], body=item)
+            # First, get the existing item
+            query = "SELECT * FROM c WHERE c.id = @id"
+            params = [{"name": "@id", "value": item_id}]
+            items = list(self.container.query_items(
+                query=query,
+                parameters=params,
+                enable_cross_partition_query=True
+            ))
+            
+            if not items:
+                print(f"Item with id {item_id} not found")
+                return None
+            
+            # Get the existing item
+            existing_item = items[0]
+            
+            # Update the fields
+            existing_item.update(updates)
+            
+            # Replace the item in the container
+            updated_item = self.container.replace_item(
+                item=item_id,
+                body=existing_item
+            )
             print(f"Item updated with id: {updated_item['id']}")
             return updated_item
-        except exceptions.CosmosResourceNotFoundError:
-            print(f"Item with id {item['id']} not found. Unable to update.")
-            return None
+            
         except exceptions.CosmosHttpResponseError as e:
             print(f"An error occurred during update: {e.message}")
             return None
@@ -158,15 +183,66 @@ class CosmosDBManager:
         :param user_id: The user's ID
         :return: List of items belonging to the user
         """
-        query = "SELECT * FROM c WHERE c.userId = @userId"
-        parameters = [{"name": "@userId", "value": user_id}]
+        query = "SELECT * FROM c WHERE c.user_id = @user_id"
+        parameters = [{"name": "@user_id", "value": user_id}]
         return self.query_items(query, parameters, partition_key=user_id)
+
+    def bulk_update(self, updates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Update multiple items in a single operation.
+
+        :param updates: List of tuples containing (item_id, update_dict)
+        :return: List of updated items
+        """
+        try:
+            # First get all items we need to update
+            item_ids = [update['id'] for update in updates]
+            query = "SELECT * FROM c WHERE c.id IN (@ids)"
+            params = [{"name": "@ids", "value": item_ids}]
+            items = list(self.container.query_items(
+                query=query,
+                parameters=params,
+                enable_cross_partition_query=True
+            ))
+
+            if not items:
+                return []
+
+            # Create a mapping of id to item for easy lookup
+            items_dict = {item['id']: item for item in items}
+            
+            # Prepare all operations
+            operations = []
+            updated_items = []
+            
+            for update in updates:
+                item_id = update.pop('id')
+                if item_id not in items_dict:
+                    continue
+                    
+                # Get the existing item and update it
+                item = items_dict[item_id].copy()
+                item.update(update)
+                
+                # Add to operations list
+                operations.append(('upsert', item))
+                updated_items.append(item)
+                
+            # Execute all operations in a single batch
+            if operations:
+                self.container.execute_multi(operations)
+                
+            return updated_items
+            
+        except exceptions.CosmosHttpResponseError as e:
+            print(f"An error occurred during bulk update: {e.message}")
+            return []
 
 def example_create_item():
     cosmos_db = CosmosDBManager()
     new_item = {
         'id': 'item1',
-        'partitionKey': 'example_partition',
+        'user_id': 'test-user',
         'name': 'John Doe',
         'age': 30
     }
@@ -180,7 +256,7 @@ def example_update_item():
     cosmos_db = CosmosDBManager()
     item_to_update = {
         'id': 'item1',
-        'partitionKey': 'example_partition',
+        'user_id': 'test-user',
         'name': 'John Doe',
         'age': 31  # Updated age
     }
@@ -194,7 +270,7 @@ def example_upsert_item():
     cosmos_db = CosmosDBManager()
     item_to_upsert = {
         'id': 'item2',
-        'partitionKey': 'example_partition',
+        'user_id': 'test-user',
         'name': 'Jane Doe',
         'age': 28
     }
@@ -206,14 +282,14 @@ def example_upsert_item():
 
 def example_query_items():
     cosmos_db = CosmosDBManager()
-    query = "SELECT * FROM c WHERE c.partitionKey = @partitionKey"
-    parameters = [{"name": "@partitionKey", "value": "example_partition"}]
+    query = "SELECT * FROM c WHERE c.user_id = @user_id"
+    parameters = [{"name": "@user_id", "value": "test-user"}]
     items = cosmos_db.query_items(query, parameters)
     print(f"Queried items: {items}")
 
 def example_delete_item():
     cosmos_db = CosmosDBManager()
-    if cosmos_db.delete_item('item1', 'example_partition'):
+    if cosmos_db.delete_item('item1', 'test-user'):
         print("Item deleted successfully")
     else:
         print("Failed to delete item")

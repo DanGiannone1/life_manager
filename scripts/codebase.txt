@@ -1,0 +1,3116 @@
+Here is my codebase:
+
+<File: backend/app.py>
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from cosmos_db import CosmosDBManager
+import hashlib
+import secrets
+from datetime import datetime, timezone
+import uuid
+import google.generativeai as genai
+import re
+import json
+
+
+app = Flask(__name__)
+CORS(app)
+
+# Initialize CosmosDB manager
+cosmos_db = CosmosDBManager()
+
+# Status mapping for display
+STATUS_MAP = {
+    'not_started': 'Not Started',
+    'working_on_it': 'Working On It',
+    'complete': 'Complete'
+}
+
+def to_snake_case(data: dict) -> dict:
+    """Convert a dictionary's keys from camelCase to snake_case recursively."""
+    if not isinstance(data, dict):
+        return data
+
+    new_dict = {}
+    for key, value in data.items():
+        # Convert key from camelCase to snake_case
+        snake_key = re.sub('([a-z0-9])([A-Z])', r'\1_\2', key).lower()
+        
+        # Handle nested dictionaries and lists
+        if isinstance(value, dict):
+            new_dict[snake_key] = to_snake_case(value)
+        elif isinstance(value, list):
+            new_dict[snake_key] = [to_snake_case(item) if isinstance(item, dict) else item for item in value]
+        else:
+            new_dict[snake_key] = value
+            
+    return new_dict
+
+def to_camel_case(data: dict) -> dict:
+    """Convert a dictionary's keys from snake_case to camelCase recursively."""
+    if not isinstance(data, dict):
+        return data
+
+    new_dict = {}
+    for key, value in data.items():
+        # Convert key from snake_case to camelCase
+        components = key.split('_')
+        camel_key = components[0] + ''.join(x.title() for x in components[1:])
+        
+        # Handle nested dictionaries and lists
+        if isinstance(value, dict):
+            new_dict[camel_key] = to_camel_case(value)
+        elif isinstance(value, list):
+            new_dict[camel_key] = [to_camel_case(item) if isinstance(item, dict) else item for item in value]
+        else:
+            new_dict[camel_key] = value
+            
+    return new_dict
+
+def generate_hash_id(user_id: str, title: str, timestamp: str) -> str:
+    """
+    Generate a unique hash ID from user_id, title, and timestamp.
+    
+    Args:
+        user_id: The user's ID
+        title: The item's title
+        timestamp: ISO format timestamp with second precision
+    
+    Returns:
+        A 23-character string containing a hash and salt
+    """
+    if not all([user_id, title, timestamp]):
+        raise ValueError("Missing required parameters for hash generation")
+
+    # Add a 4-character random salt for extra uniqueness
+    salt = secrets.token_hex(2)  # 2 bytes = 4 hex characters
+    
+    # Sanitize inputs (remove whitespace and normalize)
+    user_id = user_id.strip()
+    title = title.strip()
+    
+    # Combine elements for hashing
+    combined = f"{user_id}::{title}::{timestamp}::{salt}"
+    
+    # Create SHA-256 hash
+    hash_object = hashlib.sha256(combined.encode('utf-8'))
+    # Get first 19 chars of the hex digest
+    short_hash = hash_object.hexdigest()[:19]
+    
+    # Format: [hash]_[salt] (23 characters total)
+    return f"{short_hash}_{salt}"
+
+@app.route('/api/create-item', methods=['POST'])
+def create_item():
+    try:
+        data = to_snake_case(request.json)
+        
+        # Validate required fields
+        required_fields = ['title', 'user_id', 'type']
+        missing_fields = [field for field in required_fields if not data.get(field)]
+        if missing_fields:
+            return jsonify({'error': f'Missing required fields: {", ".join(missing_fields)}'}), 400
+            
+        if data['type'] not in ['task', 'goal']:
+            return jsonify({'error': 'Invalid type'}), 400
+
+        # Validate and convert status
+        status = data.get('status', 'not_started').lower().replace(' ', '_')
+        valid_statuses = ['not_started', 'working_on_it', 'complete']
+        if status not in valid_statuses:
+            return jsonify({'error': f'Invalid status value. Must be one of: {", ".join(valid_statuses)}'}), 400
+
+        # Validate and map priority (0-100 scale)
+        priority_map = {
+            'Very High': 90,
+            'High': 70,
+            'Medium': 50,
+            'Low': 30,
+            'Very Low': 10
+        }
+        priority = data.get('priority', 'Medium')
+        if priority not in priority_map:
+            return jsonify({'error': f'Invalid priority value. Must be one of: {", ".join(priority_map.keys())}'}), 400
+            
+        # Get current timestamp in ISO format with second precision
+        current_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        
+        # Generate hash ID
+        try:
+            hash_id = generate_hash_id(
+                user_id=data['user_id'],
+                title=data['title'],
+                timestamp=current_time
+            )
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+            
+        # Add type prefix
+        type_prefix = 't' if data['type'] == 'task' else 'g'
+        item_id = f"{type_prefix}_{hash_id}"
+        
+        # Create the base item structure
+        item = {
+            'id': item_id,
+            'user_id': data['user_id'],  # This should come from authentication in production
+            'type': data['type'],  # 'task' or 'goal'
+            'title': data['title'],
+            'status': status,
+            'priority': priority_map[priority],  # 0-100 scale
+            'dynamic_priority': priority_map[priority],  # Initially same as priority
+            'notes': data.get('notes'),
+            'due_date': data.get('due_date'),
+            'created_at': current_time,
+            'updated_at': current_time,
+            'category_id': data.get('category_id'),
+            'subcategory_id': data.get('subcategory_id'),
+            'is_recurring': data.get('is_recurring', False),
+            'frequency_in_days': data.get('frequency_in_days'),
+            'completion_history': []
+        }
+        
+        # Add type-specific fields
+        if data['type'] == 'task':
+            item.update({
+                'goal_ids': data.get('goal_ids', [])
+            })
+        elif data['type'] == 'goal':
+            item.update({
+                'target_date': data.get('target_date'),
+                'associated_task_ids': data.get('associated_task_ids', [])
+            })
+        
+        # Create the item in CosmosDB
+        created_item = cosmos_db.create_item(item)
+        
+        if created_item:
+            return jsonify({'message': 'Item created successfully'}), 201
+        else:
+            return jsonify({'error': 'Failed to create item'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/get-master-list', methods=['GET'])
+def get_master_list():
+    try:
+        # For now, we'll just get all items for the test user
+        # In production, this would come from authentication
+        user_id = 'test-user'
+        
+        # Get filter parameters
+        statuses = request.args.get('statuses', '').split(',') if request.args.get('statuses') else None
+        sort_by = request.args.get('sortBy', 'priority')
+        sort_direction = request.args.get('sortDirection', 'asc')
+        item_type = request.args.get('type')
+        
+        # Build the query
+        query = "SELECT * FROM c WHERE c.user_id = @user_id"
+        params = [{"name": "@user_id", "value": user_id}]
+        
+        # Add type filter if specified
+        if item_type:
+            query += " AND c.type = @type"
+            params.append({"name": "@type", "value": item_type})
+            
+        # Add status filter if specified
+        if statuses and len(statuses) > 0 and not (len(statuses) == 1 and statuses[0] == ''):
+            status_conditions = []
+            for i, status in enumerate(statuses):
+                param_name = f"@status{i}"
+                status_conditions.append(f"c.status = {param_name}")
+                params.append({"name": param_name, "value": status.lower().replace(' ', '_')})
+            query += f" AND ({' OR '.join(status_conditions)})"
+            
+        # Add sorting
+        sort_field = {
+            'priority': 'c.priority',  # Using raw priority number now
+            'dueDate': 'c.due_date',
+            'createdAt': 'c.created_at'
+        }.get(sort_by, 'c.priority')
+        
+        # For priority, we want asc to mean highest priority first (90 = Very High)
+        if sort_by == 'priority':
+            sort_direction = 'asc' if sort_direction == 'desc' else 'desc'
+            
+        query += f" ORDER BY {sort_field} {sort_direction.upper()}"
+        
+        # Query items from CosmosDB
+        items = cosmos_db.query_items(query, params, partition_key=user_id)
+        
+        if items is None:
+            return jsonify([]), 200
+            
+        # Priority mapping for display
+        priority_map = {
+            90: 'Very High',
+            70: 'High',
+            50: 'Medium',
+            30: 'Low',
+            10: 'Very Low'
+        }
+        
+        response_items = []
+        for item in items:
+            camel_item = to_camel_case(item)
+            camel_item['displayPriority'] = priority_map.get(item['priority'], 'Medium')
+            camel_item['status'] = STATUS_MAP.get(item['status'], item['status'])
+            response_items.append(camel_item)
+            
+        return jsonify(response_items), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/batch-update', methods=['PATCH'])
+def batch_update():
+    try:
+        data = to_snake_case(request.json)
+        if not data.get('updates'):
+            return jsonify({'error': 'No updates provided'}), 400
+
+        # Validate batch size
+        if len(data['updates']) > 100:
+            return jsonify({'error': 'Maximum batch size is 100 items'}), 400
+
+        # Reverse status mapping for storage
+        REVERSE_STATUS_MAP = {
+            'Not Started': 'not_started',
+            'Working On It': 'working_on_it',
+            'Complete': 'complete'
+        }
+
+        priority_map = {
+            'Very High': 90,
+            'High': 70,
+            'Medium': 50,
+            'Low': 30,
+            'Very Low': 10
+        }
+        
+        current_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+        for update in data['updates']:
+            item_id = update.get('id')
+            if not item_id:
+                continue
+
+            # Convert status from display format to storage format
+            if 'status' in update:
+                display_status = update['status']
+                storage_status = REVERSE_STATUS_MAP.get(display_status)
+                if not storage_status:
+                    return jsonify({'error': f'Invalid status value for item {item_id}. Must be one of: {", ".join(REVERSE_STATUS_MAP.keys())}'}, 400)
+                update['status'] = storage_status
+
+            # Handle priority if it's being updated
+            if 'priority' in update:
+                display_priority = update['priority']
+                if display_priority not in priority_map:
+                    return jsonify({'error': f'Invalid priority value for item {item_id}. Must be one of: {", ".join(priority_map.keys())}'}, 400)
+                update['priority'] = priority_map[display_priority]
+
+            # Add updated_at timestamp
+            update['updated_at'] = current_time
+            
+            # Update the item in CosmosDB
+            if not cosmos_db.update_item(item_id, update):
+                return jsonify({'error': f'Failed to update item {item_id}'}), 400
+
+        return jsonify({'message': 'Items updated successfully'}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/items/<item_id>', methods=['DELETE'])
+def delete_item(item_id: str):
+    try:
+        # For now, hardcode test-user
+        user_id = 'test-user'
+        
+        # Delete the item
+        success = cosmos_db.delete_item(item_id, user_id)
+        
+        if success:
+            return jsonify({'message': 'Item deleted successfully'}), 200
+        else:
+            return jsonify({'error': 'Failed to delete item'}), 404
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
+
+--------------------------------------------------------------------------------
+<File: backend/cosmos_db.py>
+"""
+### cosmos_db.py ###
+
+This module handles interactions with Azure Cosmos DB, including database and container creation,
+and CRUD operations on documents. It automatically selects between key-based and DefaultAzureCredential
+authentication based on the presence of COSMOS_MASTER_KEY. Logging is configured to show only
+custom messages.
+
+Requirements:
+    azure-cosmos==4.5.1
+    azure-identity==1.12.0
+"""
+
+import os
+from typing import List, Dict, Any, Optional
+from dotenv import load_dotenv
+from azure.cosmos import CosmosClient, exceptions, PartitionKey
+from azure.cosmos.container import ContainerProxy
+from azure.cosmos.database import DatabaseProxy
+from azure.identity import DefaultAzureCredential
+
+class CosmosDBManager:
+    def __init__(self, cosmos_host=None, cosmos_database_id=None, cosmos_container_id=None):
+        self._load_env_variables(cosmos_host, cosmos_database_id, cosmos_container_id)
+        self.client = self._get_cosmos_client()
+        self.database: Optional[DatabaseProxy] = None
+        self.container: Optional[ContainerProxy] = None
+        self._initialize_database_and_container()
+
+    def _load_env_variables(self, cosmos_host=None, cosmos_database_id=None, cosmos_container_id=None):
+        load_dotenv()
+        self.cosmos_host = cosmos_host or os.environ.get("COSMOS_HOST")
+        self.cosmos_database_id = cosmos_database_id or os.environ.get("COSMOS_DATABASE_ID")
+        self.cosmos_container_id = cosmos_container_id or os.environ.get("COSMOS_CONTAINER_ID")
+        self.tenant_id = os.environ.get("TENANT_ID", '16b3c013-d300-468d-ac64-7eda0820b6d3')
+
+        if not all([self.cosmos_host, self.cosmos_database_id, self.cosmos_container_id]):
+            raise ValueError("Cosmos DB configuration is incomplete")
+
+    def _get_cosmos_client(self) -> CosmosClient:
+        print("Initializing Cosmos DB client")
+        print("Using DefaultAzureCredential for Cosmos DB authentication")
+        credential = DefaultAzureCredential(
+            interactive_browser_tenant_id=self.tenant_id,
+            visual_studio_code_tenant_id=self.tenant_id,
+            workload_identity_tenant_id=self.tenant_id,
+            shared_cache_tenant_id=self.tenant_id
+        )
+        return CosmosClient(self.cosmos_host, credential=credential)
+
+    def _initialize_database_and_container(self) -> None:
+        try:
+            self.database = self._create_or_get_database()
+            self.container = self._create_or_get_container()
+        except exceptions.CosmosHttpResponseError as e:
+            print(f'An error occurred: {e.message}')
+            raise
+
+    def _create_or_get_database(self) -> DatabaseProxy:
+        try:
+            database = self.client.create_database(id=self.cosmos_database_id)
+            print(f'Database with id \'{self.cosmos_database_id}\' created')
+        except exceptions.CosmosResourceExistsError:
+            database = self.client.get_database_client(self.cosmos_database_id)
+            print(f'Database with id \'{self.cosmos_database_id}\' was found')
+        return database
+
+    def _create_or_get_container(self) -> ContainerProxy:
+        try:
+            container = self.database.create_container(
+                id=self.cosmos_container_id, 
+                partition_key=PartitionKey(path='/user_id')
+            )
+            print(f'Container with id \'{self.cosmos_container_id}\' created')
+        except exceptions.CosmosResourceExistsError:
+            container = self.database.get_container_client(self.cosmos_container_id)
+            print(f'Container with id \'{self.cosmos_container_id}\' was found')
+        return container
+
+    def create_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a new item in the container. Fails if an item with the same ID already exists.
+
+        :param item: The item to create
+        :return: The created item, or None if creation failed
+        """
+        try:
+            created_item = self.container.create_item(body=item)
+            print(f"Item created with id: {created_item['id']}")
+            return created_item
+        except exceptions.CosmosResourceExistsError:
+            print(f"Item with id {item['id']} already exists. Use update_item or upsert_item to modify.")
+            return None
+        except exceptions.CosmosHttpResponseError as e:
+            print(f"An error occurred during creation: {e.message}")
+            return None
+
+    def update_item(self, item_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update specific fields of an existing item in the container.
+
+        :param item_id: The ID of the item to update
+        :param updates: Dictionary of fields to update
+        :return: The updated item, or None if update failed
+        """
+        try:
+            # First, get the existing item
+            query = "SELECT * FROM c WHERE c.id = @id"
+            params = [{"name": "@id", "value": item_id}]
+            items = list(self.container.query_items(
+                query=query,
+                parameters=params,
+                enable_cross_partition_query=True
+            ))
+            
+            if not items:
+                print(f"Item with id {item_id} not found")
+                return None
+            
+            # Get the existing item
+            existing_item = items[0]
+            
+            # Update the fields
+            existing_item.update(updates)
+            
+            # Replace the item in the container
+            updated_item = self.container.replace_item(
+                item=item_id,
+                body=existing_item
+            )
+            print(f"Item updated with id: {updated_item['id']}")
+            return updated_item
+            
+        except exceptions.CosmosHttpResponseError as e:
+            print(f"An error occurred during update: {e.message}")
+            return None
+
+    def upsert_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Upsert (create or update) an item in the container.
+
+        :param item: The item to upsert
+        :return: The upserted item, or None if upsert failed
+        """
+        try:
+            upserted_item = self.container.upsert_item(body=item)
+            print(f"Item upserted with id: {upserted_item['id']}")
+            return upserted_item
+        except exceptions.CosmosHttpResponseError as e:
+            print(f"An error occurred during upsert: {e.message}")
+            return None
+
+    def query_items(self, query: str, parameters: Optional[List[Dict[str, Any]]] = None, partition_key: Optional[str] = None) -> List[Dict[str, Any]]:
+        try:
+            items = list(self.container.query_items(
+                query=query,
+                parameters=parameters,
+                partition_key=partition_key,
+                enable_cross_partition_query=(partition_key is None)
+            ))
+            print(f"Query returned {len(items)} items")
+            return items
+        except exceptions.CosmosHttpResponseError as e:
+            print(f"An error occurred during query: {e.message}")
+            return []
+
+    def delete_item(self, item_id: str, partition_key: str) -> bool:
+        try:
+            self.container.delete_item(item=item_id, partition_key=partition_key)
+            print(f"Item deleted with id: {item_id}")
+            return True
+        except exceptions.CosmosResourceNotFoundError:
+            print(f"Item with id {item_id} not found. Unable to delete.")
+            return False
+        except exceptions.CosmosHttpResponseError as e:
+            print(f"An error occurred during deletion: {e.message}")
+            return False
+
+    def get_items_by_user_id(self, user_id: str) -> List[Dict[str, Any]]:
+        """
+        Get all items for a specific user.
+
+        :param user_id: The user's ID
+        :return: List of items belonging to the user
+        """
+        query = "SELECT * FROM c WHERE c.user_id = @user_id"
+        parameters = [{"name": "@user_id", "value": user_id}]
+        return self.query_items(query, parameters, partition_key=user_id)
+
+    def bulk_update(self, updates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Update multiple items in a single operation.
+
+        :param updates: List of tuples containing (item_id, update_dict)
+        :return: List of updated items
+        """
+        try:
+            # First get all items we need to update
+            item_ids = [update['id'] for update in updates]
+            query = "SELECT * FROM c WHERE c.id IN (@ids)"
+            params = [{"name": "@ids", "value": item_ids}]
+            items = list(self.container.query_items(
+                query=query,
+                parameters=params,
+                enable_cross_partition_query=True
+            ))
+
+            if not items:
+                return []
+
+            # Create a mapping of id to item for easy lookup
+            items_dict = {item['id']: item for item in items}
+            
+            # Prepare all operations
+            operations = []
+            updated_items = []
+            
+            for update in updates:
+                item_id = update.pop('id')
+                if item_id not in items_dict:
+                    continue
+                    
+                # Get the existing item and update it
+                item = items_dict[item_id].copy()
+                item.update(update)
+                
+                # Add to operations list
+                operations.append(('upsert', item))
+                updated_items.append(item)
+                
+            # Execute all operations in a single batch
+            if operations:
+                self.container.execute_multi(operations)
+                
+            return updated_items
+            
+        except exceptions.CosmosHttpResponseError as e:
+            print(f"An error occurred during bulk update: {e.message}")
+            return []
+
+def example_create_item():
+    cosmos_db = CosmosDBManager()
+    new_item = {
+        'id': 'item1',
+        'user_id': 'test-user',
+        'name': 'John Doe',
+        'age': 30
+    }
+    created_item = cosmos_db.create_item(new_item)
+    if created_item:
+        print(f"Created item: {created_item}")
+    else:
+        print("Failed to create item. It might already exist.")
+
+def example_update_item():
+    cosmos_db = CosmosDBManager()
+    item_to_update = {
+        'id': 'item1',
+        'user_id': 'test-user',
+        'name': 'John Doe',
+        'age': 31  # Updated age
+    }
+    updated_item = cosmos_db.update_item(item_to_update)
+    if updated_item:
+        print(f"Updated item: {updated_item}")
+    else:
+        print("Failed to update item. It might not exist.")
+
+def example_upsert_item():
+    cosmos_db = CosmosDBManager()
+    item_to_upsert = {
+        'id': 'item2',
+        'user_id': 'test-user',
+        'name': 'Jane Doe',
+        'age': 28
+    }
+    upserted_item = cosmos_db.upsert_item(item_to_upsert)
+    if upserted_item:
+        print(f"Upserted item: {upserted_item}")
+    else:
+        print("Failed to upsert item.")
+
+def example_query_items():
+    cosmos_db = CosmosDBManager()
+    query = "SELECT * FROM c WHERE c.user_id = @user_id"
+    parameters = [{"name": "@user_id", "value": "test-user"}]
+    items = cosmos_db.query_items(query, parameters)
+    print(f"Queried items: {items}")
+
+def example_delete_item():
+    cosmos_db = CosmosDBManager()
+    if cosmos_db.delete_item('item1', 'test-user'):
+        print("Item deleted successfully")
+    else:
+        print("Failed to delete item")
+
+if __name__ == "__main__":
+    try:
+        example_create_item()
+        example_update_item()
+        example_upsert_item()
+        example_query_items()
+        example_delete_item()
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+--------------------------------------------------------------------------------
+<File: design_document.md>
+# Life Manager Design Document
+
+## 1. Introduction
+
+This document outlines the design for the Life Manager application, including data models, API endpoints, and other key considerations.
+
+This is a personal project to help me manage my life. The main goal is to help me manage my tasks and goals and stay organized and productive. 
+
+
+## Main Features & Components
+
+
+1. Home Page - blank for now.
+2. Weekly Plan Page - blank for now.
+3. Master List Page - Shows all items (tasks and goals). Ability to filter and sort. Ability to add new tasks and goals. 
+    a. Item Card - Main UI component for displaying an item. Shows various fields from the data model. 
+4. Sidebar - Navigation to different pages.
+
+The main page will be blank for now. There will be a sidebar to navigate to the different pages.
+
+
+
+## Project Structure
+
+```
+.
+├── backend
+│   ├── app.py
+│   ├── cosmos_db.py
+│   └── requirements.txt
+└── frontend
+    ├── .gitignore
+    ├── components.json
+    ├── eslint.config.mjs
+    ├── next.config.ts
+    ├── package-lock.json
+    ├── package.json
+    ├── postcss.config.mjs
+    ├── public
+    │   ├── branding
+    │   │   ├── next.svg
+    │   │   └── vercel.svg
+    │   ├── icons
+    │   │   ├── favicon.ico
+    │   │   └── site.webmanifest
+    │   └── images
+    │       ├── file.svg
+    │       ├── globe.svg
+    │       └── window.svg
+    ├── src
+    │   ├── app
+    │   │   ├── globals.css
+    │   │   ├── home
+    │   │   │   └── page.tsx
+    │   │   ├── layout.tsx
+    │   │   ├── master-list
+    │   │   │   └── page.tsx
+    │   │   ├── page.tsx
+    │   │   ├── sidebar
+    │   │   │   └── sidebar.tsx
+    │   │   └── weekly-plan
+    │   │       └── page.tsx
+    │   └── components
+    │       ├── items
+    │       │   ├── add-item-dialog.tsx
+    │       │   └── item-filters.tsx
+    │       └── ui
+    │           ├── badge.tsx
+    │           ├── button.tsx
+    │           ├── card.tsx
+    │           ├── checkbox.tsx
+    │           ├── dialog.tsx
+    │           ├── input.tsx
+    │           ├── label.tsx
+    │           ├── select.tsx
+    │           └── switch.tsx
+    ├── tailwind.config.ts
+    └── tsconfig.json
+```
+
+
+## Tech Stack
+
+### Backend
+
+- Python
+- Flask
+
+### Frontend
+
+- React
+- NextJS
+- TailwindCSS Styling
+- Shadcn Components
+- Lucide Icons
+
+### Database
+
+- CosmosDB
+
+
+## 3. Data Model
+
+### Backend Data Models (Python/CosmosDB)
+
+#### Task Document Schema
+```
+TaskDocument:
+    id: string
+    user_id: string
+    type: "task" | "goal"
+    title: string
+    status: "not_started" | "working_on_it" | "complete"
+    priority: int # 0-100
+    dynamic_priority: int # 0-100
+    notes: string, optional
+    due_date: string, optional # ISO date string
+    created_at: string # ISO date string
+    updated_at: string # ISO date string
+    category_id: string, optional
+    subcategory_id: string, optional
+    is_recurring: boolean, optional
+    frequency_in_days: number, optional
+    completion_history: Array of { completed_at: string, next_due_date: string }, optional
+    goal_ids: Array<string>, optional # References to GoalDocuments if this task is part of one or more goals
+}
+```
+
+#### Goal Document Schema
+```
+GoalDocument:
+    id: string
+    user_id: string
+    type: "goal"
+    title: string
+    status: "not_started" | "working_on_it" | "complete"
+    priority: int # 0-100
+    dynamic_priority: int # 0-100
+    notes: string, optional
+    due_date: string, optional # ISO date string
+    created_at: string # ISO date string
+    updated_at: string # ISO date string
+    category_id: string, optional
+    subcategory_id: string, optional
+    is_recurring: boolean, optional
+    frequency_in_days: number, optional
+    completion_history: Array of { completed_at: string, next_due_date: string }, optional
+    target_date: string, optional # ISO date string
+    associated_task_ids: Array<string>, optional # References to TaskDocuments that are part of this goal
+}
+```
+    
+    
+    
+#### Category Document Schema
+```
+CategoryDocument:
+    id: string;
+    user_id: string;
+    name: string;
+    color: string, optional
+    subcategories: Array of { id: string, name: string }, optional
+}
+```
+
+### Frontend Data Models
+
+#### Task Item
+```typescript
+interface TaskItem {
+    id: string;
+    userId: string;
+    type: "task" | "goal";
+    title: string;
+    status: "Not Started" | "Working on it" | "Complete";
+    priority: number; // Keep the numerical priority
+    displayPriority: "Very High" | "High" | "Medium" | "Low" | "Very Low"; // Add display priority
+    notes?: string;
+    dueDate?: string; // Formatted date string
+    createdAt: string; // Formatted date string
+    updatedAt: string; // Formatted date string
+    categoryId?: string;
+    subcategoryId?: string;
+    isRecurring?: boolean;
+    frequencyInDays?: number;
+    completionHistory?: Array<{
+        completedAt: string; // Formatted date string
+        nextDueDate: string; // Formatted date string
+    }>;
+    goalIds?: string[]; // Array of goal IDs
+}
+```
+
+#### Goal Item
+```typescript
+interface GoalItem {
+    id: string;
+    userId: string;
+    type: "goal";
+    title: string;
+    status: "Not Started" | "Working on it" | "Complete";
+    priority: number; // Keep the numerical priority
+    displayPriority: "Very High" | "High" | "Medium" | "Low" | "Very Low"; // Add display priority
+    notes?: string;
+    dueDate?: string; // Formatted date string
+    createdAt: string; // Formatted date string
+    updatedAt: string; // Formatted date string
+    categoryId?: string;
+    subcategoryId?: string;
+    isRecurring?: boolean;
+    frequencyInDays?: number;
+    completionHistory?: Array<{
+        completedAt: string; // Formatted date string
+        nextDueDate: string; // Formatted date string
+    }>;
+    targetDate?: string; // Formatted date string
+    taskIds?: string[]; // Array of task IDs
+}
+```
+    
+
+#### Category Item
+```typescript
+interface CategoryItem {
+    id: string;
+    userId: string;
+    name: string;
+    color?: string;
+    subcategories?: Array<{
+        id: string;
+        name: string;
+    }>;
+}
+```
+
+### Mapping Functions
+
+The backend handles all case conversions between snake_case (Python/backend) and camelCase (TypeScript/frontend). The frontend always works with camelCase, while the backend internally uses snake_case.
+
+#### Case Conversion Functions
+
+```python
+def to_snake_case(data: dict) -> dict:
+    """Convert a dictionary's keys from camelCase to snake_case recursively."""
+
+def to_camel_case(data: dict) -> dict:
+    """Convert a dictionary's keys from snake_case to camelCase recursively."""
+```
+
+These utility functions handle all case conversions between the frontend and backend:
+- `to_snake_case`: Converts incoming frontend payloads from camelCase to snake_case
+- `to_camel_case`: Converts outgoing backend responses from snake_case to camelCase
+
+Both functions handle nested dictionaries and arrays automatically.
+
+#### Usage in API Endpoints
+
+1. **Incoming Requests (Frontend → Backend)**
+   - All incoming request data is automatically converted from camelCase to snake_case using `to_snake_case()`
+   - Example: `userId` → `user_id`, `dueDate` → `due_date`
+
+2. **Database Operations**
+   - All data is stored in snake_case format in CosmosDB
+   - Internal backend operations use snake_case consistently
+
+3. **Outgoing Responses (Backend → Frontend)**
+   - All outgoing response data is converted from snake_case to camelCase using `to_camel_case()`
+   - Example: `user_id` → `userId`, `due_date` → `dueDate`
+
+4. **Special Handling**
+   - Status values are stored in snake_case internally (`not_started`, `working_on_it`, `complete`)
+   - Status values are converted to Title Case for frontend display ("Not Started", "Working on it", "Complete")
+   - Priority values maintain their format ("Very High", "High", etc.) but are mapped to numeric values internally
+
+This approach ensures:
+- Consistent data format in the database (snake_case)
+- Consistent data format in the frontend (camelCase)
+- Automatic conversion at API boundaries
+- No manual conversion needed in frontend code
+- Proper handling of nested objects and arrays
+
+### Data Transfer Contract
+
+The data models defined above, along with the case conversion functions, form the contract between the frontend and backend. The frontend can always expect camelCase keys in responses, and should always send camelCase keys in requests. The backend handles all necessary conversions.
+    
+    
+
+## 3. UI Constants
+
+### Priority Colors
+```css
+Very High: #E84B3C
+High: #F5B800
+Medium: #808080
+Low: #00DE94
+Very Low: #B0B0B0
+```
+    
+
+### Status Colors
+```css
+Not Started: #808080
+Working on it: #F5B800
+Complete: #00DE94
+```
+    
+
+## 4. API Endpoints
+
+### GET /api/get-master-list
+Retrieves the master list of items with optional filtering and sorting.
+
+Query Parameters:
+- `statuses`: Comma-separated list of status values to filter by
+- `sortBy`: Field to sort by (priority, dueDate, createdAt)
+- `sortDirection`: Sort direction (asc, desc)
+- `type`: Filter by item type (task, goal)
+
+### GET /api/items/{id}
+Retrieves a single item by its ID.
+
+### PATCH /api/batch-update
+Updates multiple items in a single request.
+
+Request Body:
+```typescript
+{
+    updates: Array<{
+        id: string;
+        [field: string]: any;
+    }>;
+}
+```
+    
+A maximum of 100 items can be updated in a single batch request. If one update in the batch fails, the entire batch will be rolled back.
+
+### POST /api/items
+Creates a new item.
+
+Request Body: Task or Goal document (without id, createdAt, updatedAt)
+
+### DELETE /api/items/{id}
+Deletes a single item by its ID.
+
+### POST /api/categories
+Creates a new category.
+
+### GET /api/categories
+Retrieves all categories.
+
+### GET /api/categories/{id}
+Retrieves a single category by its ID.
+
+### PATCH /api/categories/{id}
+Updates a category.
+
+### DELETE /api/categories/{id}
+Deletes a category.
+
+## 5. Error Handling
+
+API endpoints will return appropriate HTTP status codes (e.g., 400 for bad requests, 404 for not found, 500 for server errors). Error responses will be in JSON format with an error message.
+
+## 6. Authentication and Authorization
+
+Authentication will be handled using JWT (JSON Web Tokens). Authorization will be based on user roles and permissions.
+
+## 7. Filtering and Sorting
+
+Filters are applied using exact matches for status and type. Sorting is done based on the selected field and direction.
+
+## 8. Recurring Tasks
+
+When a recurring task is completed, a new instance of the task is created with a new due date based on the `frequencyInDays`. The `completionHistory` is updated with the completion date and the next due date.
+
+## 9. Milestones
+
+There is no limit on the number of milestones for a goal. Milestones have the same status values as tasks and goals.
+
+## 10. Other Considerations
+
+*   The `updatedAt` field is automatically updated on every change to the document.
+*   IDs are generated using UUIDs (version 4).
+*   Batch update limits and behavior
+
+--------------------------------------------------------------------------------
+<File: frontend/components.json>
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "new-york",
+  "rsc": true,
+  "tsx": true,
+  "tailwind": {
+    "config": "tailwind.config.ts",
+    "css": "src/app/globals.css",
+    "baseColor": "neutral",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "aliases": {
+    "components": "@/components",
+    "utils": "@/lib/utils",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  },
+  "iconLibrary": "lucide"
+}
+--------------------------------------------------------------------------------
+<File: frontend/next-env.d.ts>
+/// <reference types="next" />
+/// <reference types="next/image-types/global" />
+
+// NOTE: This file should not be edited
+// see https://nextjs.org/docs/app/api-reference/config/typescript for more information.
+
+--------------------------------------------------------------------------------
+<File: frontend/next.config.ts>
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+  async redirects() {
+    return [
+      {
+        source: '/favicon.ico',
+        destination: '/icons/favicon.ico',
+        permanent: true,
+      },
+    ];
+  },
+};
+
+export default nextConfig;
+
+--------------------------------------------------------------------------------
+<File: frontend/package.json>
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@radix-ui/react-checkbox": "^1.1.3",
+    "@radix-ui/react-dialog": "^1.1.4",
+    "@radix-ui/react-label": "^2.1.1",
+    "@radix-ui/react-select": "^2.1.4",
+    "@radix-ui/react-slot": "^1.1.1",
+    "@radix-ui/react-switch": "^1.1.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.469.0",
+    "next": "15.1.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^2.6.0",
+    "tailwindcss-animate": "^1.0.7"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.1.3",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  }
+}
+
+--------------------------------------------------------------------------------
+<File: frontend/src/app/globals.css>
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Color System */
+:root {
+  /* Brand Colors */
+  --cyan: #00FFFF;
+  --blue: #00AEFF;
+  --mint: #00DE94;
+  --green: #00FF52;
+
+  /* Status Colors */
+  --status-working: #F5B800;
+  --status-not-started: #808080;
+  --status-complete: #00DE94;
+
+  /* Priority Colors */
+  --priority-high: #E84B3C;
+  --priority-medium: #F5B800;
+  --priority-low: #00DE94;
+
+  /* Neutral Colors */
+  --white: #ffffff;
+  --background: #ffffff;
+  --text-primary: #1a1a1a;
+  --text-secondary: #666666;
+  --text-tertiary: #999999;
+}
+
+@layer base {
+  body {
+    @apply bg-white relative min-h-screen;
+  }
+
+  /* Remove background texture */
+  body::before {
+    display: none;
+  }
+
+  body::after {
+    display: none;
+  }
+
+  /* Modern Typography */
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-[#1a1a1a] font-medium tracking-tight;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer components {
+  /* Layout Components */
+  .page-container {
+    @apply max-w-7xl mx-auto p-6 space-y-6 relative;
+  }
+
+  /* Header Elements */
+  .page-title {
+    @apply text-3xl font-bold text-[#1a1a1a]
+           tracking-tight;
+  }
+
+  .page-header-button {
+    @apply bg-gray-100 hover:bg-gray-200
+           text-gray-700 font-medium
+           px-4 py-2 rounded-lg
+           transition-all duration-300
+           border-0
+           flex items-center justify-center;
+  }
+
+  .page-header-button[size="icon"] {
+    @apply p-2 w-10 h-10
+           flex items-center justify-center;
+  }
+
+  .filter-icon {
+    @apply h-5 w-5 text-gray-700
+           flex-shrink-0;
+  }
+
+  /* Grid System */
+  .grid-container {
+    @apply w-full bg-white rounded-lg border border-gray-200 overflow-hidden;
+  }
+
+  .grid-header {
+    @apply grid grid-cols-[1fr_200px_135px_120px_120px_120px_40px] gap-4
+           px-4 py-3 bg-gray-50 border-b border-gray-200;
+  }
+
+  .grid-header-cell {
+    @apply text-sm font-medium text-gray-600;
+  }
+
+  .grid-header-cell.center {
+    @apply text-center;
+  }
+
+  .grid-body {
+    @apply divide-y divide-gray-100;
+  }
+
+  .grid-row {
+    @apply grid grid-cols-[1fr_200px_135px_120px_120px_120px_40px] gap-4
+           px-4 py-3 hover:bg-gray-50 transition-colors
+           items-center;
+  }
+
+  .grid-cell {
+    @apply text-sm text-gray-700;
+  }
+
+  .grid-cell.center {
+    @apply flex justify-center;
+  }
+
+  /* Item Title */
+  .item-title {
+    @apply text-blue-600 hover:text-blue-700 cursor-pointer;
+  }
+
+  /* Save Button */
+  .save-button {
+    @apply bg-gray-100 hover:bg-gray-200
+           text-gray-700 font-medium
+           px-4 py-2 rounded-lg
+           transition-all duration-300
+           disabled:opacity-50 disabled:cursor-not-allowed
+           flex items-center gap-2;
+  }
+
+  .save-button.modified {
+    @apply bg-green-500 hover:bg-green-600;
+  }
+
+  /* Editable Fields */
+  .editable-cell {
+    position: relative;
+  }
+
+  .editable-cell:hover .edit-icon {
+    opacity: 1;
+  }
+
+  .editable-content {
+    @apply w-full px-2 py-1 rounded
+           hover:bg-gray-100 transition-colors
+           cursor-pointer;
+  }
+
+  .editable-content:focus {
+    @apply outline-none ring-2 ring-blue-500 bg-white;
+  }
+
+  .edit-icon {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 0;
+    width: 1rem;
+    height: 1rem;
+    color: #9ca3af;
+    transition: opacity 0.2s;
+  }
+
+  /* Status Badges */
+  .status-badge {
+    @apply px-4 py-1 rounded-full text-sm font-medium 
+           inline-flex items-center justify-center gap-2
+           transition-opacity
+           w-full whitespace-nowrap;
+  }
+
+  .status-badge.working {
+    @apply bg-[#F5B800] text-white;
+  }
+
+  .status-badge.complete {
+    @apply bg-[#00DE94] text-white;
+  }
+
+  .status-badge.not-started {
+    @apply bg-gray-400 text-white;
+  }
+
+  /* Priority Badges */
+  .priority-badge {
+    @apply px-4 py-1 rounded-full text-sm font-medium
+           inline-flex items-center justify-center gap-2
+           transition-opacity
+           w-full whitespace-nowrap;
+  }
+
+  .priority-badge.very-high {
+    @apply bg-[#E84B3C] text-white;
+  }
+
+  .priority-badge.high {
+    @apply bg-[#F5B800] text-white;
+  }
+
+  .priority-badge.medium {
+    @apply bg-[#808080] text-white;
+  }
+
+  .priority-badge.low {
+    @apply bg-[#00DE94] text-white;
+  }
+
+  .priority-badge.very-low {
+    @apply bg-[#B0B0B0] text-white;
+  }
+
+  /* Time Estimate */
+  .time-estimate {
+    @apply text-sm text-gray-600 font-medium;
+  }
+
+  /* Filter Panel */
+  .filter-panel {
+    @apply bg-white
+           border border-gray-100
+           rounded-xl p-6 
+           animate-[slideIn_0.2s_ease-out_forwards]
+           shadow-lg;
+  }
+
+  /* Select Overrides */
+  .select-trigger-no-border {
+    @apply border-0 shadow-none focus:ring-0;
+  }
+
+  .select-trigger-no-border svg {
+    @apply text-gray-700 opacity-80;
+  }
+
+  .select-content-rounded {
+    @apply rounded-lg overflow-hidden border border-gray-200 bg-white;
+  }
+
+  .select-item-hover {
+    @apply hover:bg-gray-50/50 cursor-pointer px-3 py-1.5;
+  }
+
+  /* Status Select */
+  .status-select-trigger {
+    @apply min-w-[135px];
+  }
+}
+
+--------------------------------------------------------------------------------
+<File: frontend/src/app/home/page.tsx>
+"use client";
+
+
+// This would normally come from an API
+const mockTasks = [
+  {
+    id: '1',
+    title: 'Complete Project Report',
+    description: 'Write and submit the quarterly project report',
+    priority: 'high',
+    status: 'in_progress',
+    category: 'Work',
+    dueDate: '2024-01-05',
+    isRecurring: false,
+  },
+  {
+    id: '2',
+    title: 'Morning Exercise',
+    description: '30 minutes of cardio',
+    priority: 'medium',
+    status: 'pending',
+    category: 'Health',
+    isRecurring: true,
+    streak: 5,
+  },
+];
+
+export default function Home() {
+  return (
+    <div className="page-container">
+      <div className="page-header">
+        <h2>Welcome to Life Manager</h2>
+      </div>
+      <p className="subtitle">Your personal productivity dashboard</p>
+      <div className="content-grid md:grid-cols-2 lg:grid-cols-3">
+        {/* Dashboard content will go here */}
+      </div>
+    </div>
+  );
+}
+
+--------------------------------------------------------------------------------
+<File: frontend/src/app/layout.tsx>
+import type { Metadata } from "next";
+import { Inter } from "next/font/google";
+import "./globals.css";
+import { Sidebar } from "./sidebar/sidebar";
+import { cn } from "@/lib/utils";
+
+const inter = Inter({ subsets: ["latin"] });
+
+export const metadata: Metadata = {
+  title: "Life Manager",
+  description: "Manage your life efficiently",
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <body className={cn(inter.className, "bg-background")}>
+        <div className="relative min-h-screen">
+          <div className="fixed inset-y-0 z-50 hidden w-72 flex-col md:flex">
+            <Sidebar />
+          </div>
+          <main className="flex-1 md:pl-72">
+            <div className="container mx-auto p-8 pt-6">
+              {children}
+            </div>
+          </main>
+        </div>
+      </body>
+    </html>
+  );
+}
+
+--------------------------------------------------------------------------------
+<File: frontend/src/app/master-list/page.tsx>
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import { Button } from "@/components/ui/button";
+import { AddItemDialog } from "@/components/items/add-item-dialog";
+import { ItemFilters, FilterOptions } from "@/components/items/item-filters";
+import { 
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
+import { 
+    SlidersHorizontal, 
+    Calendar,
+    Save,
+    Pencil,
+    CheckCircle2,
+    AlertCircle,
+    CircleDot,
+    Trash2
+} from "lucide-react";
+
+interface Item {
+    id: string;
+    title: string;
+    type: 'task' | 'goal';
+    priority: number;  // Raw number (0-100)
+    displayPriority: string;  // "Very High", "High", etc.
+    status: string;
+    notes?: string;
+    dueDate?: string;
+    createdAt: string;
+    categoryId?: string;
+    subcategoryId?: string;
+    isRecurring?: boolean;
+    frequencyInDays?: number;
+    completionHistory?: Array<{
+        completedAt: string;
+        nextDueDate: string;
+    }>;
+}
+
+interface EditableFieldProps {
+    value: string;
+    onChange: (value: string) => void;
+    type?: 'text' | 'date';
+    className?: string;
+}
+
+function EditableField({ value, onChange, type = 'text', className }: EditableFieldProps) {
+    const [isEditing, setIsEditing] = useState(false);
+    const [editValue, setEditValue] = useState(value);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        setEditValue(value);
+    }, [value]);
+
+    useEffect(() => {
+        if (isEditing && inputRef.current) {
+            inputRef.current.focus();
+        }
+    }, [isEditing]);
+
+    const handleChange = (newValue: string) => {
+        setEditValue(newValue);
+        onChange(newValue);
+        setIsEditing(false);
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            handleChange(editValue);
+        } else if (e.key === 'Escape') {
+            setIsEditing(false);
+            setEditValue(value);
+        }
+    };
+
+    if (isEditing) {
+        return (
+            <input
+                ref={inputRef}
+                type={type}
+                className="w-full px-2 py-1 text-sm rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onBlur={() => handleChange(editValue)}
+                onKeyDown={handleKeyDown}
+            />
+        );
+    }
+
+    return (
+        <div 
+            className="editable-cell"
+            onClick={() => setIsEditing(true)}
+        >
+            <div className={cn("editable-content", className)}>
+                {value}
+            </div>
+            <Pencil className="edit-icon" />
+        </div>
+    );
+}
+
+const getStatusBadgeClass = (status: string) => {
+    switch (status) {
+        case 'Working On It':
+            return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+        case 'Complete':
+            return 'bg-green-100 text-green-800 border-green-300';
+        case 'Not Started':
+            return 'bg-gray-100 text-gray-800 border-gray-300';
+        default:
+            return 'bg-gray-100 text-gray-800 border-gray-300';
+    }
+};
+
+const getPriorityBadgeClass = (priority: string) => {
+    switch (priority) {
+        case 'Very High':
+            return 'bg-red-100 text-red-800 border-red-300';
+        case 'High':
+            return 'bg-orange-100 text-orange-800 border-orange-300';
+        case 'Medium':
+            return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+        case 'Low':
+            return 'bg-green-200 text-green-800 border-green-300';
+        default: // Very Low
+            return 'bg-green-100 text-green-800 border-green-300';
+    }
+};
+
+// Priority mapping for backend communication
+const PRIORITY_MAP = {
+    'Very High': 90,
+    'High': 70,
+    'Medium': 50,
+    'Low': 30,
+    'Very Low': 10
+} as const;
+
+const REVERSE_PRIORITY_MAP = {
+    90: 'Very High',
+    70: 'High',
+    50: 'Medium',
+    30: 'Low',
+    10: 'Very Low'
+} as const;
+
+function StatusSelect({ value, onChange }: { value: string, onChange: (value: string) => void }) {
+    return (
+        <Select 
+            value={value} 
+            onValueChange={onChange}
+        >
+            <SelectTrigger className={cn(
+                "select-trigger-no-border rounded-full px-3 py-1 text-sm border status-select-trigger",
+                getStatusBadgeClass(value)
+            )}>
+                <SelectValue>{value}</SelectValue>
+            </SelectTrigger>
+            <SelectContent className="select-content-rounded">
+                <SelectItem value="Not Started" className="select-item-hover">Not Started</SelectItem>
+                <SelectItem value="Working On It" className="select-item-hover">Working On It</SelectItem>
+                <SelectItem value="Complete" className="select-item-hover">Complete</SelectItem>
+            </SelectContent>
+        </Select>
+    );
+}
+
+function PrioritySelect({ value, displayValue, onChange }: { value: number, displayValue: string, onChange: (value: string) => void }) {
+    return (
+        <Select 
+            value={displayValue} 
+            onValueChange={(newValue) => {
+                // When priority changes, send the display value to parent
+                onChange(newValue);
+            }}
+        >
+            <SelectTrigger className={cn(
+                "select-trigger-no-border rounded-full px-3 py-1 text-sm border",
+                getPriorityBadgeClass(displayValue)
+            )}>
+                <SelectValue>{displayValue}</SelectValue>
+            </SelectTrigger>
+            <SelectContent className="select-content-rounded">
+                <SelectItem value="Very High" className="select-item-hover">Very High</SelectItem>
+                <SelectItem value="High" className="select-item-hover">High</SelectItem>
+                <SelectItem value="Medium" className="select-item-hover">Medium</SelectItem>
+                <SelectItem value="Low" className="select-item-hover">Low</SelectItem>
+                <SelectItem value="Very Low" className="select-item-hover">Very Low</SelectItem>
+            </SelectContent>
+        </Select>
+    );
+}
+
+export default function MasterList() {
+    const [open, setOpen] = useState(false);
+    const [items, setItems] = useState<Item[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [showFilters, setShowFilters] = useState(false);
+    const [pendingChanges, setPendingChanges] = useState<Record<string, Partial<Item>>>({});
+    const [filters, setFilters] = useState<FilterOptions>({
+        statuses: ['Not Started', 'Working On It'],
+        sortBy: 'priority',
+        sortDirection: 'asc',
+        type: undefined
+    });
+
+    const fetchItems = async () => {
+        try {
+            const queryParams = new URLSearchParams({
+                statuses: filters.statuses.join(','),
+                sortBy: filters.sortBy,
+                sortDirection: filters.sortDirection,
+                ...(filters.type && { type: filters.type })
+            });
+
+            const response = await fetch(`http://localhost:5000/api/get-master-list?${queryParams}`);
+            if (!response.ok) {
+                throw new Error('Failed to fetch items');
+            }
+            const data = await response.json();
+            setItems(data);
+        } catch (error) {
+            console.error('Error fetching items:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchItems();
+    }, [filters]);
+
+    const handleUpdateField = (id: string, field: string, value: any) => {
+        setPendingChanges(prev => {
+            const changes = { ...prev };
+            if (field === 'priority') {
+                // When updating priority, store both the display value and numeric value
+                changes[id] = {
+                    ...changes[id],
+                    priority: PRIORITY_MAP[value as keyof typeof PRIORITY_MAP],
+                    displayPriority: value
+                };
+            } else {
+                changes[id] = {
+                    ...changes[id],
+                    [field]: value
+                };
+            }
+            return changes;
+        });
+    };
+
+    const handleSaveChanges = async () => {
+        try {
+            const updates = Object.entries(pendingChanges).map(([id, changes]) => ({
+                id,
+                ...changes
+            }));
+
+            const response = await fetch(`http://localhost:5000/api/batch-update`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ updates }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to update items');
+            }
+
+            // Update local state
+            setItems(items.map(item => {
+                const changes = pendingChanges[item.id];
+                return changes ? { ...item, ...changes } : item;
+            }));
+
+            // Clear pending changes
+            setPendingChanges({});
+        } catch (error) {
+            console.error('Error updating items:', error);
+        }
+    };
+
+    const formatDate = (dateString?: string) => {
+        if (!dateString) return 'N/A';
+        return new Date(dateString).toLocaleDateString('en-US', { 
+            year: 'numeric',
+            month: 'numeric',
+            day: 'numeric'
+        });
+    };
+
+    const hasPendingChanges = Object.keys(pendingChanges).length > 0;
+
+    const handleDeleteItem = async (id: string) => {
+        if (!confirm('Are you sure you want to delete this item?')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`http://localhost:5000/api/items/${id}`, {
+                method: 'DELETE',
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to delete item');
+            }
+
+            // Remove item from local state
+            setItems(items.filter(item => item.id !== id));
+            // Remove from pending changes if present
+            setPendingChanges(prev => {
+                const newChanges = { ...prev };
+                delete newChanges[id];
+                return newChanges;
+            });
+        } catch (error) {
+            console.error('Error deleting item:', error);
+            alert(error instanceof Error ? error.message : 'Failed to delete item');
+        }
+    };
+
+    return (
+        <div className="page-container">
+            <div className="flex items-center justify-between mb-8">
+                <h1 className="page-title">Master List</h1>
+                <div className="flex items-center gap-2">
+                    <Button
+                        className="page-header-button"
+                        size="icon"
+                        onClick={() => setShowFilters(!showFilters)}
+                    >
+                        <SlidersHorizontal className="filter-icon" />
+                    </Button>
+                    <Button
+                        className="save-button"
+                        onClick={handleSaveChanges}
+                        disabled={!hasPendingChanges}
+                    >
+                        <Save className="h-4 w-4" />
+                        Save Changes
+                    </Button>
+                    <Button 
+                        onClick={() => setOpen(true)}
+                        className="page-header-button"
+                    >
+                        Add Item
+                    </Button>
+                </div>
+            </div>
+
+            {showFilters && (
+                <div className="mb-6">
+                    <ItemFilters 
+                        filters={filters}
+                        onFiltersChange={setFilters}
+                    />
+                </div>
+            )}
+
+            <AddItemDialog 
+                open={open} 
+                onOpenChange={setOpen}
+                onItemAdded={fetchItems}
+            />
+
+            {loading ? (
+                <div className="flex items-center justify-center h-32">
+                    <div className="text-muted-foreground">Loading...</div>
+                </div>
+            ) : (
+                <div className="grid-container">
+                    <div className="grid-header">
+                        <div className="grid-header-cell">Item</div>
+                        <div className="grid-header-cell">Notes</div>
+                        <div className="grid-header-cell">Status</div>
+                        <div className="grid-header-cell">Due Date</div>
+                        <div className="grid-header-cell">Created On</div>
+                        <div className="grid-header-cell">Priority</div>
+                        <div className="grid-header-cell"></div>
+                    </div>
+                    <div className="grid-body">
+                        {items.map((item) => {
+                            const itemChanges = pendingChanges[item.id] || {};
+                            const displayItem = { ...item, ...itemChanges };
+
+                            return (
+                                <div key={item.id} className="grid-row">
+                                    <div className="grid-cell">
+                                        <EditableField
+                                            value={displayItem.title}
+                                            onChange={(value) => handleUpdateField(item.id, 'title', value)}
+                                            className="item-title text-black font-medium"
+                                        />
+                                    </div>
+                                    <div className="grid-cell">
+                                        <EditableField
+                                            value={displayItem.notes || ''}
+                                            onChange={(value) => handleUpdateField(item.id, 'notes', value)}
+                                            className="text-gray-600 text-sm"
+                                        />
+                                    </div>
+                                    <div className="grid-cell">
+                                        <StatusSelect
+                                            value={displayItem.status}
+                                            onChange={(value) => handleUpdateField(item.id, 'status', value)}
+                                        />
+                                    </div>
+                                    <div className="grid-cell">
+                                        <EditableField
+                                            value={displayItem.dueDate || ''}
+                                            onChange={(value) => handleUpdateField(item.id, 'dueDate', value)}
+                                            type="date"
+                                        />
+                                    </div>
+                                    <div className="grid-cell">
+                                        {formatDate(displayItem.createdAt)}
+                                    </div>
+                                    <div className="grid-cell">
+                                        <PrioritySelect
+                                            value={displayItem.priority}
+                                            displayValue={displayItem.displayPriority}
+                                            onChange={(value) => handleUpdateField(item.id, 'priority', value)}
+                                        />
+                                    </div>
+                                    <div className="grid-cell flex justify-center">
+                                        <button
+                                            onClick={() => handleDeleteItem(item.id)}
+                                            className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                                            title="Delete item"
+                                        >
+                                            <Trash2 className="h-4 w-4 text-gray-500 hover:text-red-500" />
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+} 
+--------------------------------------------------------------------------------
+<File: frontend/src/app/page.tsx>
+import { redirect } from 'next/navigation';
+
+export default async function RootPage() {
+  redirect('/home');
+  // Need to return something even though redirect will be called
+  return null;
+} 
+--------------------------------------------------------------------------------
+<File: frontend/src/app/sidebar/sidebar.tsx>
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { Home, Calendar, List } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const routes = [
+  {
+    label: "Home",
+    icon: Home,
+    href: "/home",
+    className: "sidebar-icon home"
+  },
+  {
+    label: "Weekly Plan",
+    icon: Calendar,
+    href: "/weekly-plan",
+    className: "sidebar-icon weekly"
+  },
+  {
+    label: "Master List",
+    icon: List,
+    href: "/master-list",
+    className: "sidebar-icon master"
+  },
+];
+
+export function Sidebar() {
+  const pathname = usePathname();
+
+  return (
+    <div className="sidebar flex h-full flex-col overflow-y-auto">
+      <div className="flex flex-col gap-4 p-6">
+        <Link href="/home" className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold">
+            Life Manager
+          </h1>
+        </Link>
+        <div className="flex flex-col gap-1">
+          {routes.map((route) => (
+            <Link
+              key={route.href}
+              href={route.href}
+              className={cn(
+                "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                pathname === route.href 
+                  ? "bg-[#00AEFF]/10 text-[--text-primary]" 
+                  : "text-[--text-secondary] hover:text-[--text-primary] hover:bg-[#00AEFF]/5"
+              )}
+            >
+              <route.icon className={route.className} />
+              {route.label}
+            </Link>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+} 
+--------------------------------------------------------------------------------
+<File: frontend/src/app/weekly-plan/page.tsx>
+export default function WeeklyPlan() {
+  return (
+    <div className="page-container">
+      <div className="page-header">
+        <h2>Weekly Plan</h2>
+        <div className="flex gap-2">
+          {/* Action buttons will go here */}
+        </div>
+      </div>
+      <p className="subtitle">Plan and organize your week ahead</p>
+      <div className="content-grid">
+        {/* Weekly plan content will go here */}
+      </div>
+    </div>
+  );
+} 
+--------------------------------------------------------------------------------
+<File: frontend/src/components/items/add-item-dialog.tsx>
+import { useState } from 'react';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
+interface AddItemDialogProps {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    onItemAdded?: () => void;
+}
+
+export function AddItemDialog({ open, onOpenChange, onItemAdded }: AddItemDialogProps) {
+    const [formData, setFormData] = useState({
+        title: '',
+        type: 'task',
+        status: 'Not Started',
+        priority: 'Medium',
+        notes: '',
+        dueDate: '',
+        isRecurring: false,
+        frequencyInDays: 0,
+        categoryId: '',
+        subcategoryId: '',
+        // Goal-specific fields
+        targetDate: '',
+        // Task-specific fields
+        goalIds: [] as string[],
+        // Arrays initialized empty
+        completionHistory: [] as Array<{ completedAt: string, nextDueDate: string }>,
+        associatedTaskIds: [] as string[]
+    });
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+
+        try {
+            const response = await fetch('http://localhost:5000/api/create-item', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    ...formData,
+                    userId: 'test-user', // This should come from authentication
+                }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to create item');
+            }
+
+            const data = await response.json();
+            console.log('Item created:', data);
+            onOpenChange(false);
+            onItemAdded?.();
+            
+            // Reset form
+            setFormData({
+                title: '',
+                type: 'task',
+                status: 'Not Started',
+                priority: 'Medium',
+                notes: '',
+                dueDate: '',
+                isRecurring: false,
+                frequencyInDays: 0,
+                categoryId: '',
+                subcategoryId: '',
+                targetDate: '',
+                goalIds: [],
+                completionHistory: [],
+                associatedTaskIds: []
+            });
+            
+        } catch (error) {
+            console.error('Error creating item:', error);
+            alert(error instanceof Error ? error.message : 'Failed to create item');
+        }
+    };
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value, type } = e.target;
+        setFormData(prev => ({
+            ...prev,
+            [name]: type === 'number' ? Number(value) : value
+        }));
+    };
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="bg-white">
+                <DialogHeader>
+                    <DialogTitle>Add New Item</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Title</label>
+                        <Input
+                            name="title"
+                            value={formData.title}
+                            onChange={handleInputChange}
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Type</label>
+                        <select
+                            name="type"
+                            value={formData.type}
+                            onChange={handleInputChange}
+                            className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+                        >
+                            <option value="task">Task</option>
+                            <option value="goal">Goal</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Priority</label>
+                        <select
+                            name="priority"
+                            value={formData.priority}
+                            onChange={handleInputChange}
+                            className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+                        >
+                            <option value="Very High">Very High</option>
+                            <option value="High">High</option>
+                            <option value="Medium">Medium</option>
+                            <option value="Low">Low</option>
+                            <option value="Very Low">Very Low</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Notes</label>
+                        <Input
+                            name="notes"
+                            value={formData.notes}
+                            onChange={handleInputChange}
+                        />
+                    </div>
+                    {formData.type === 'task' && (
+                        <>
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Due Date</label>
+                                <Input
+                                    type="date"
+                                    name="dueDate"
+                                    value={formData.dueDate}
+                                    onChange={handleInputChange}
+                                />
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    name="isRecurring"
+                                    checked={formData.isRecurring}
+                                    onChange={(e) => setFormData(prev => ({
+                                        ...prev,
+                                        isRecurring: e.target.checked
+                                    }))}
+                                />
+                                <label className="text-sm font-medium">Recurring Task</label>
+                            </div>
+                            {formData.isRecurring && (
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">Frequency (days)</label>
+                                    <Input
+                                        type="number"
+                                        name="frequencyInDays"
+                                        value={formData.frequencyInDays}
+                                        onChange={handleInputChange}
+                                        min="1"
+                                    />
+                                </div>
+                            )}
+                        </>
+                    )}
+                    {formData.type === 'goal' && (
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Target Date</label>
+                            <Input
+                                type="date"
+                                name="targetDate"
+                                value={formData.targetDate}
+                                onChange={handleInputChange}
+                            />
+                        </div>
+                    )}
+                    <Button 
+                        type="submit" 
+                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
+                    >
+                        Create Item
+                    </Button>
+                </form>
+            </DialogContent>
+        </Dialog>
+    );
+} 
+--------------------------------------------------------------------------------
+<File: frontend/src/components/items/item-filters.tsx>
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+
+export interface FilterOptions {
+    statuses: ('Not Started' | 'Working On It' | 'Complete')[];
+    sortBy: 'priority' | 'dueDate' | 'createdAt';
+    sortDirection: 'asc' | 'desc';
+    type?: 'all' | 'task' | 'goal';
+}
+
+interface ItemFiltersProps {
+    filters: FilterOptions;
+    onFiltersChange: (filters: FilterOptions) => void;
+}
+
+export function ItemFilters({ filters, onFiltersChange }: ItemFiltersProps) {
+    const toggleStatus = (status: FilterOptions['statuses'][0]) => {
+        const newStatuses = filters.statuses.includes(status)
+            ? filters.statuses.filter(s => s !== status)
+            : [...filters.statuses, status];
+        onFiltersChange({ ...filters, statuses: newStatuses });
+    };
+
+    return (
+        <div className="filter-panel">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+                <div className="space-y-4">
+                    <Label className="text-sm font-semibold text-gray-700">Status</Label>
+                    <div className="space-y-4 pt-1">
+                        <div className="flex items-center space-x-3">
+                            <Checkbox 
+                                id="not_started"
+                                checked={filters.statuses.includes('Not Started')}
+                                onCheckedChange={() => toggleStatus('Not Started')}
+                                className="border-gray-200 data-[state=checked]:bg-blue-500 data-[state=checked]:text-white"
+                            />
+                            <label 
+                                htmlFor="not_started"
+                                className="text-sm font-medium text-gray-700"
+                            >
+                                Not Started
+                            </label>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                            <Checkbox 
+                                id="working_on_it"
+                                checked={filters.statuses.includes('Working On It')}
+                                onCheckedChange={() => toggleStatus('Working On It')}
+                                className="border-gray-200 data-[state=checked]:bg-blue-500 data-[state=checked]:text-white"
+                            />
+                            <label 
+                                htmlFor="working_on_it"
+                                className="text-sm font-medium text-gray-700"
+                            >
+                                Working On It
+                            </label>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                            <Checkbox 
+                                id="complete"
+                                checked={filters.statuses.includes('Complete')}
+                                onCheckedChange={() => toggleStatus('Complete')}
+                                className="border-gray-200 data-[state=checked]:bg-blue-500 data-[state=checked]:text-white"
+                            />
+                            <label 
+                                htmlFor="complete"
+                                className="text-sm font-medium text-gray-700"
+                            >
+                                Complete
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="space-y-4">
+                    <Label className="text-sm font-semibold text-gray-700">Sort By</Label>
+                    <Select
+                        value={filters.sortBy}
+                        onValueChange={(value: FilterOptions['sortBy']) =>
+                            onFiltersChange({ ...filters, sortBy: value })
+                        }
+                    >
+                        <SelectTrigger className="bg-white border-gray-200 text-gray-700 hover:bg-gray-50">
+                            <SelectValue placeholder="Sort by..." />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white border-gray-200">
+                            <SelectItem value="priority" className="text-gray-700 hover:bg-gray-50">Priority</SelectItem>
+                            <SelectItem value="dueDate" className="text-gray-700 hover:bg-gray-50">Due Date</SelectItem>
+                            <SelectItem value="createdAt" className="text-gray-700 hover:bg-gray-50">Created Date</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-4">
+                    <Label className="text-sm font-semibold text-gray-700">Sort Direction</Label>
+                    <Select
+                        value={filters.sortDirection}
+                        onValueChange={(value: FilterOptions['sortDirection']) =>
+                            onFiltersChange({ ...filters, sortDirection: value })
+                        }
+                    >
+                        <SelectTrigger className="bg-white border-gray-200 text-gray-700 hover:bg-gray-50">
+                            <SelectValue placeholder="Sort direction..." />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white border-gray-200">
+                            <SelectItem value="asc" className="text-gray-700 hover:bg-gray-50">Ascending</SelectItem>
+                            <SelectItem value="desc" className="text-gray-700 hover:bg-gray-50">Descending</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-4">
+                    <Label className="text-sm font-semibold text-gray-700">Type</Label>
+                    <Select
+                        value={filters.type || 'all'}
+                        onValueChange={(value: NonNullable<FilterOptions['type']>) =>
+                            onFiltersChange({ ...filters, type: value === 'all' ? undefined : value })
+                        }
+                    >
+                        <SelectTrigger className="bg-white border-gray-200 text-gray-700 hover:bg-gray-50">
+                            <SelectValue placeholder="Select type..." />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white border-gray-200">
+                            <SelectItem value="all" className="text-gray-700 hover:bg-gray-50">All Types</SelectItem>
+                            <SelectItem value="task" className="text-gray-700 hover:bg-gray-50">Tasks</SelectItem>
+                            <SelectItem value="goal" className="text-gray-700 hover:bg-gray-50">Goals</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+            </div>
+        </div>
+    );
+} 
+--------------------------------------------------------------------------------
+<File: frontend/src/components/ui/badge.tsx>
+import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
+
+import { cn } from "@/lib/utils"
+
+const badgeVariants = cva(
+  "inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  {
+    variants: {
+      variant: {
+        default:
+          "border-transparent bg-primary text-primary-foreground shadow hover:bg-primary/80",
+        secondary:
+          "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        destructive:
+          "border-transparent bg-destructive text-destructive-foreground shadow hover:bg-destructive/80",
+        outline: "text-foreground",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  }
+)
+
+export interface BadgeProps
+  extends React.HTMLAttributes<HTMLDivElement>,
+    VariantProps<typeof badgeVariants> {}
+
+function Badge({ className, variant, ...props }: BadgeProps) {
+  return (
+    <div className={cn(badgeVariants({ variant }), className)} {...props} />
+  )
+}
+
+export { Badge, badgeVariants }
+
+--------------------------------------------------------------------------------
+<File: frontend/src/components/ui/button.tsx>
+import * as React from "react"
+import { Slot } from "@radix-ui/react-slot"
+import { cva, type VariantProps } from "class-variance-authority"
+import { cn } from "@/lib/utils"
+
+const buttonVariants = cva(
+  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+  {
+    variants: {
+      variant: {
+        default:
+          "bg-primary text-primary-foreground shadow hover:bg-primary/90",
+        destructive:
+          "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
+        outline:
+          "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
+        secondary:
+          "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
+        ghost: "hover:bg-accent hover:text-accent-foreground",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        default: "h-9 px-4 py-2",
+        sm: "h-8 rounded-md px-3 text-xs",
+        lg: "h-10 rounded-md px-8",
+        icon: "h-9 w-9",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
+
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+  asChild?: boolean
+}
+
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant, size, asChild = false, ...props }, ref) => {
+    const Comp = asChild ? Slot : "button"
+    return (
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        {...props}
+      />
+    )
+  }
+)
+Button.displayName = "Button"
+
+export { Button, buttonVariants } 
+--------------------------------------------------------------------------------
+<File: frontend/src/components/ui/card.tsx>
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+const Card = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn(
+      "rounded-lg border border-border/40 shadow-sm hover:shadow-md transition-all duration-200",
+      className
+    )}
+    {...props}
+  />
+))
+Card.displayName = "Card"
+
+const CardHeader = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn("flex flex-col space-y-1.5 p-6", className)}
+    {...props}
+  />
+))
+CardHeader.displayName = "CardHeader"
+
+const CardTitle = React.forwardRef<
+  HTMLParagraphElement,
+  React.HTMLAttributes<HTMLHeadingElement>
+>(({ className, ...props }, ref) => (
+  <h3
+    ref={ref}
+    className={cn("text-lg font-semibold leading-none tracking-tight text-card-foreground", className)}
+    {...props}
+  />
+))
+CardTitle.displayName = "CardTitle"
+
+const CardDescription = React.forwardRef<
+  HTMLParagraphElement,
+  React.HTMLAttributes<HTMLParagraphElement>
+>(({ className, ...props }, ref) => (
+  <p
+    ref={ref}
+    className={cn("text-sm text-muted-foreground", className)}
+    {...props}
+  />
+))
+CardDescription.displayName = "CardDescription"
+
+const CardContent = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div ref={ref} className={cn("p-6 pt-0", className)} {...props} />
+))
+CardContent.displayName = "CardContent"
+
+const CardFooter = React.forwardRef<
+  HTMLDivElement,
+  React.HTMLAttributes<HTMLDivElement>
+>(({ className, ...props }, ref) => (
+  <div
+    ref={ref}
+    className={cn("flex items-center p-6 pt-0", className)}
+    {...props}
+  />
+))
+CardFooter.displayName = "CardFooter"
+
+export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }
+
+--------------------------------------------------------------------------------
+<File: frontend/src/components/ui/checkbox.tsx>
+"use client"
+
+import * as React from "react"
+import * as CheckboxPrimitive from "@radix-ui/react-checkbox"
+import { Check } from "lucide-react"
+
+import { cn } from "@/lib/utils"
+
+const Checkbox = React.forwardRef<
+  React.ElementRef<typeof CheckboxPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>
+>(({ className, ...props }, ref) => (
+  <CheckboxPrimitive.Root
+    ref={ref}
+    className={cn(
+      "peer h-4 w-4 shrink-0 rounded-sm border border-primary shadow focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground",
+      className
+    )}
+    {...props}
+  >
+    <CheckboxPrimitive.Indicator
+      className={cn("flex items-center justify-center text-current")}
+    >
+      <Check className="h-4 w-4" />
+    </CheckboxPrimitive.Indicator>
+  </CheckboxPrimitive.Root>
+))
+Checkbox.displayName = CheckboxPrimitive.Root.displayName
+
+export { Checkbox }
+
+--------------------------------------------------------------------------------
+<File: frontend/src/components/ui/dialog.tsx>
+import * as React from "react"
+import * as DialogPrimitive from "@radix-ui/react-dialog"
+import { cn } from "@/lib/utils"
+
+const Dialog = DialogPrimitive.Root
+
+const DialogTrigger = DialogPrimitive.Trigger
+
+const DialogPortal = DialogPrimitive.Portal
+
+const DialogClose = DialogPrimitive.Close
+
+const DialogOverlay = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Overlay>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Overlay
+    ref={ref}
+    className={cn(
+      "fixed inset-0 z-50 bg-black/80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      className
+    )}
+    {...props}
+  />
+))
+DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
+
+const DialogContent = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
+>(({ className, children, ...props }, ref) => (
+  <DialogPortal>
+    <DialogOverlay />
+    <DialogPrimitive.Content
+      ref={ref}
+      className={cn(
+        "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </DialogPrimitive.Content>
+  </DialogPortal>
+))
+DialogContent.displayName = DialogPrimitive.Content.displayName
+
+const DialogHeader = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn(
+      "flex flex-col space-y-1.5 text-center sm:text-left",
+      className
+    )}
+    {...props}
+  />
+)
+DialogHeader.displayName = "DialogHeader"
+
+const DialogFooter = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) => (
+  <div
+    className={cn(
+      "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
+      className
+    )}
+    {...props}
+  />
+)
+DialogFooter.displayName = "DialogFooter"
+
+const DialogTitle = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Title>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Title
+    ref={ref}
+    className={cn(
+      "text-lg font-semibold leading-none tracking-tight",
+      className
+    )}
+    {...props}
+  />
+))
+DialogTitle.displayName = DialogPrimitive.Title.displayName
+
+const DialogDescription = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Description>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Description
+    ref={ref}
+    className={cn("text-sm text-muted-foreground", className)}
+    {...props}
+  />
+))
+DialogDescription.displayName = DialogPrimitive.Description.displayName
+
+export {
+  Dialog,
+  DialogPortal,
+  DialogOverlay,
+  DialogTrigger,
+  DialogClose,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} 
+--------------------------------------------------------------------------------
+<File: frontend/src/components/ui/input.tsx>
+import * as React from "react"
+import { cn } from "@/lib/utils"
+
+export interface InputProps
+  extends React.InputHTMLAttributes<HTMLInputElement> {}
+
+const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ className, type, ...props }, ref) => {
+    return (
+      <input
+        type={type}
+        className={cn(
+          "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+          className
+        )}
+        ref={ref}
+        {...props}
+      />
+    )
+  }
+)
+Input.displayName = "Input"
+
+export { Input } 
+--------------------------------------------------------------------------------
+<File: frontend/src/components/ui/label.tsx>
+"use client"
+
+import * as React from "react"
+import * as LabelPrimitive from "@radix-ui/react-label"
+import { cva, type VariantProps } from "class-variance-authority"
+
+import { cn } from "@/lib/utils"
+
+const labelVariants = cva(
+  "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+)
+
+const Label = React.forwardRef<
+  React.ElementRef<typeof LabelPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root> &
+    VariantProps<typeof labelVariants>
+>(({ className, ...props }, ref) => (
+  <LabelPrimitive.Root
+    ref={ref}
+    className={cn(labelVariants(), className)}
+    {...props}
+  />
+))
+Label.displayName = LabelPrimitive.Root.displayName
+
+export { Label }
+
+--------------------------------------------------------------------------------
+<File: frontend/src/components/ui/select.tsx>
+"use client"
+
+import * as React from "react"
+import * as SelectPrimitive from "@radix-ui/react-select"
+import { Check, ChevronDown, ChevronUp } from "lucide-react"
+
+import { cn } from "@/lib/utils"
+
+const Select = SelectPrimitive.Root
+
+const SelectGroup = SelectPrimitive.Group
+
+const SelectValue = SelectPrimitive.Value
+
+const SelectTrigger = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
+>(({ className, children, ...props }, ref) => (
+  <SelectPrimitive.Trigger
+    ref={ref}
+    className={cn(
+      "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+      className
+    )}
+    {...props}
+  >
+    {children}
+    <SelectPrimitive.Icon asChild>
+      <ChevronDown className="h-4 w-4 opacity-50" />
+    </SelectPrimitive.Icon>
+  </SelectPrimitive.Trigger>
+))
+SelectTrigger.displayName = SelectPrimitive.Trigger.displayName
+
+const SelectScrollUpButton = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.ScrollUpButton>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.ScrollUpButton>
+>(({ className, ...props }, ref) => (
+  <SelectPrimitive.ScrollUpButton
+    ref={ref}
+    className={cn(
+      "flex cursor-default items-center justify-center py-1",
+      className
+    )}
+    {...props}
+  >
+    <ChevronUp className="h-4 w-4" />
+  </SelectPrimitive.ScrollUpButton>
+))
+SelectScrollUpButton.displayName = SelectPrimitive.ScrollUpButton.displayName
+
+const SelectScrollDownButton = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.ScrollDownButton>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.ScrollDownButton>
+>(({ className, ...props }, ref) => (
+  <SelectPrimitive.ScrollDownButton
+    ref={ref}
+    className={cn(
+      "flex cursor-default items-center justify-center py-1",
+      className
+    )}
+    {...props}
+  >
+    <ChevronDown className="h-4 w-4" />
+  </SelectPrimitive.ScrollDownButton>
+))
+SelectScrollDownButton.displayName =
+  SelectPrimitive.ScrollDownButton.displayName
+
+const SelectContent = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
+>(({ className, children, position = "popper", ...props }, ref) => (
+  <SelectPrimitive.Portal>
+    <SelectPrimitive.Content
+      ref={ref}
+      className={cn(
+        "relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        position === "popper" &&
+          "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
+        className
+      )}
+      position={position}
+      {...props}
+    >
+      <SelectScrollUpButton />
+      <SelectPrimitive.Viewport
+        className={cn(
+          "p-1",
+          position === "popper" &&
+            "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]"
+        )}
+      >
+        {children}
+      </SelectPrimitive.Viewport>
+      <SelectScrollDownButton />
+    </SelectPrimitive.Content>
+  </SelectPrimitive.Portal>
+))
+SelectContent.displayName = SelectPrimitive.Content.displayName
+
+const SelectLabel = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Label>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Label>
+>(({ className, ...props }, ref) => (
+  <SelectPrimitive.Label
+    ref={ref}
+    className={cn("px-2 py-1.5 text-sm font-semibold", className)}
+    {...props}
+  />
+))
+SelectLabel.displayName = SelectPrimitive.Label.displayName
+
+const SelectItem = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Item>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
+>(({ className, children, ...props }, ref) => (
+  <SelectPrimitive.Item
+    ref={ref}
+    className={cn(
+      "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      className
+    )}
+    {...props}
+  >
+    <span className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
+      <SelectPrimitive.ItemIndicator>
+        <Check className="h-4 w-4" />
+      </SelectPrimitive.ItemIndicator>
+    </span>
+    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+  </SelectPrimitive.Item>
+))
+SelectItem.displayName = SelectPrimitive.Item.displayName
+
+const SelectSeparator = React.forwardRef<
+  React.ElementRef<typeof SelectPrimitive.Separator>,
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Separator>
+>(({ className, ...props }, ref) => (
+  <SelectPrimitive.Separator
+    ref={ref}
+    className={cn("-mx-1 my-1 h-px bg-muted", className)}
+    {...props}
+  />
+))
+SelectSeparator.displayName = SelectPrimitive.Separator.displayName
+
+export {
+  Select,
+  SelectGroup,
+  SelectValue,
+  SelectTrigger,
+  SelectContent,
+  SelectLabel,
+  SelectItem,
+  SelectSeparator,
+  SelectScrollUpButton,
+  SelectScrollDownButton,
+}
+
+--------------------------------------------------------------------------------
+<File: frontend/src/components/ui/switch.tsx>
+"use client"
+
+import * as React from "react"
+import * as SwitchPrimitives from "@radix-ui/react-switch"
+
+import { cn } from "@/lib/utils"
+
+const Switch = React.forwardRef<
+  React.ElementRef<typeof SwitchPrimitives.Root>,
+  React.ComponentPropsWithoutRef<typeof SwitchPrimitives.Root>
+>(({ className, ...props }, ref) => (
+  <SwitchPrimitives.Root
+    className={cn(
+      "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input",
+      className
+    )}
+    {...props}
+    ref={ref}
+  >
+    <SwitchPrimitives.Thumb
+      className={cn(
+        "pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-4 data-[state=unchecked]:translate-x-0"
+      )}
+    />
+  </SwitchPrimitives.Root>
+))
+Switch.displayName = SwitchPrimitives.Root.displayName
+
+export { Switch }
+
+--------------------------------------------------------------------------------
+<File: frontend/src/lib/utils.ts>
+import { clsx, type ClassValue } from "clsx"
+import { twMerge } from "tailwind-merge"
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+
+--------------------------------------------------------------------------------
+<File: frontend/tailwind.config.ts>
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    './pages/**/*.{ts,tsx}',
+    './components/**/*.{ts,tsx}',
+    './app/**/*.{ts,tsx}',
+    './src/**/*.{ts,tsx}',
+  ],
+  safelist: [
+    'from-blue-500',
+    'from-blue-600',
+    'from-blue-700',
+    'from-blue-800',
+    'from-blue-900',
+    'to-gray-500',
+    'to-gray-600',
+    'to-gray-700',
+    'to-gray-800',
+    'to-gray-900',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        sidebar: {
+          DEFAULT: 'hsl(var(--sidebar))',
+          foreground: 'hsl(var(--sidebar-foreground))',
+        },
+        primary: {
+          DEFAULT: 'hsl(var(--primary))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted))',
+          foreground: 'hsl(var(--muted-foreground))',
+        },
+        card: {
+          DEFAULT: 'hsl(var(--card))',
+          foreground: 'hsl(var(--card-foreground))',
+        },
+      },
+    },
+  },
+  plugins: [],
+}
+
+--------------------------------------------------------------------------------
+<File: frontend/tsconfig.json>
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}
+
+--------------------------------------------------------------------------------
+<File: README.md>
+# life_manager
+
+This is a personal project to help me manage my life. The main goal is to help me manage my tasks and goals and stay organized and productive. The main page will be blank for now. There will be a sidebar to navigate to the different pages.
+
+The task page will be the second page. It will have a main grid area for tasks. There will be two types of tasks: 
+
+- Recurring tasks: These are tasks that happen on a regular basis. For example, clean shower, etc. 
+- One-time tasks: These are tasks that happen once and are not repeated. For example, sell my bike. 
+
+We should have a data model in cosmos DB. When we mark a recurring task completed, it should be marked as completed for the current date and then it should show back up once the elapsed time since last completion is greater than the frequency of the task. 
+
+
+.
+├── backend
+│   ├── app.py
+│   ├── cosmos_db.py
+│   └── requirements.txt
+└── frontend
+    ├── .gitignore
+    ├── components.json
+    ├── eslint.config.mjs
+    ├── next.config.ts
+    ├── package-lock.json
+    ├── package.json
+    ├── postcss.config.mjs
+    ├── public
+    │   ├── branding
+    │   │   ├── next.svg
+    │   │   └── vercel.svg
+    │   ├── icons
+    │   │   ├── favicon.ico
+    │   │   └── site.webmanifest
+    │   └── images
+    │       ├── file.svg
+    │       ├── globe.svg
+    │       └── window.svg
+    ├── src
+    │   ├── app
+    │   │   ├── globals.css
+    │   │   ├── home
+    │   │   │   └── page.tsx
+    │   │   ├── layout.tsx
+    │   │   ├── master-list
+    │   │   │   └── page.tsx
+    │   │   ├── page.tsx
+    │   │   ├── sidebar
+    │   │   │   └── sidebar.tsx
+    │   │   └── weekly-plan
+    │   │       └── page.tsx
+    │   └── components
+    │       ├── items
+    │       │   ├── add-item-dialog.tsx
+    │       │   └── item-filters.tsx
+    │       └── ui
+    │           ├── badge.tsx
+    │           ├── button.tsx
+    │           ├── card.tsx
+    │           ├── checkbox.tsx
+    │           ├── dialog.tsx
+    │           ├── input.tsx
+    │           ├── label.tsx
+    │           ├── select.tsx
+    │           └── switch.tsx
+    ├── tailwind.config.ts
+    └── tsconfig.json
+
+
+## Tech Stack
+
+### Backend
+
+- Python
+- Flask
+
+### Frontend
+
+- React
+- NextJS
+- TailwindCSS Styling
+- Shadcn Components
+- Lucide Icons
+
+### Database
+
+- CosmosDB
+
+--------------------------------------------------------------------------------
+
+<end codebase> 
+

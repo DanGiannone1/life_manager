@@ -19,14 +19,16 @@ import {
     Pencil,
     CheckCircle2,
     AlertCircle,
-    CircleDot
+    CircleDot,
+    Trash2
 } from "lucide-react";
 
 interface Item {
     id: string;
     title: string;
     type: 'task' | 'goal';
-    priority: string;
+    priority: number;  // Raw number (0-100)
+    displayPriority: string;  // "Very High", "High", etc.
     status: string;
     notes?: string;
     dueDate?: string;
@@ -107,59 +109,84 @@ function EditableField({ value, onChange, type = 'text', className }: EditableFi
 
 const getStatusBadgeClass = (status: string) => {
     switch (status) {
-        case 'Working on it':
-            return 'status-badge working';
+        case 'Working On It':
+            return 'bg-yellow-100 text-yellow-800 border-yellow-300';
         case 'Complete':
-            return 'status-badge complete';
+            return 'bg-green-100 text-green-800 border-green-300';
+        case 'Not Started':
+            return 'bg-gray-100 text-gray-800 border-gray-300';
         default:
-            return 'status-badge not-started';
+            return 'bg-gray-100 text-gray-800 border-gray-300';
     }
 };
 
 const getPriorityBadgeClass = (priority: string) => {
     switch (priority) {
         case 'Very High':
-            return 'priority-badge very-high';
+            return 'bg-red-100 text-red-800 border-red-300';
         case 'High':
-            return 'priority-badge high';
+            return 'bg-orange-100 text-orange-800 border-orange-300';
         case 'Medium':
-            return 'priority-badge medium';
+            return 'bg-yellow-100 text-yellow-800 border-yellow-300';
         case 'Low':
-            return 'priority-badge low';
-        default:
-            return 'priority-badge very-low';
+            return 'bg-green-200 text-green-800 border-green-300';
+        default: // Very Low
+            return 'bg-green-100 text-green-800 border-green-300';
     }
 };
 
-function StatusSelect({ value, onChange }: { value: string, onChange: (value: string) => void }) {
-    return (
-        <Select value={value} onValueChange={onChange}>
-            <SelectTrigger className={cn(
-                "select-trigger-no-border",
-                getStatusBadgeClass(value)
-            )}>
-                <SelectValue>{value}</SelectValue>
-            </SelectTrigger>
-            <SelectContent className="select-content-rounded">
-                <SelectItem value="Not Started" className="select-item-hover">Not Started</SelectItem>
-                <SelectItem value="Working on it" className="select-item-hover">Working on it</SelectItem>
-                <SelectItem value="Complete" className="select-item-hover">Complete</SelectItem>
-            </SelectContent>
-        </Select>
-    );
-}
+// Priority mapping for backend communication
+const PRIORITY_MAP = {
+    'Very High': 90,
+    'High': 70,
+    'Medium': 50,
+    'Low': 30,
+    'Very Low': 10
+} as const;
 
-function PrioritySelect({ value, onChange }: { value: string, onChange: (value: string) => void }) {
+const REVERSE_PRIORITY_MAP = {
+    90: 'Very High',
+    70: 'High',
+    50: 'Medium',
+    30: 'Low',
+    10: 'Very Low'
+} as const;
+
+function StatusSelect({ value, onChange }: { value: string, onChange: (value: string) => void }) {
     return (
         <Select 
             value={value} 
             onValueChange={onChange}
         >
             <SelectTrigger className={cn(
-                "select-trigger-no-border",
-                getPriorityBadgeClass(value)
+                "select-trigger-no-border rounded-full px-3 py-1 text-sm border status-select-trigger",
+                getStatusBadgeClass(value)
             )}>
                 <SelectValue>{value}</SelectValue>
+            </SelectTrigger>
+            <SelectContent className="select-content-rounded">
+                <SelectItem value="Not Started" className="select-item-hover">Not Started</SelectItem>
+                <SelectItem value="Working On It" className="select-item-hover">Working On It</SelectItem>
+                <SelectItem value="Complete" className="select-item-hover">Complete</SelectItem>
+            </SelectContent>
+        </Select>
+    );
+}
+
+function PrioritySelect({ value, displayValue, onChange }: { value: number, displayValue: string, onChange: (value: string) => void }) {
+    return (
+        <Select 
+            value={displayValue} 
+            onValueChange={(newValue) => {
+                // When priority changes, send the display value to parent
+                onChange(newValue);
+            }}
+        >
+            <SelectTrigger className={cn(
+                "select-trigger-no-border rounded-full px-3 py-1 text-sm border",
+                getPriorityBadgeClass(displayValue)
+            )}>
+                <SelectValue>{displayValue}</SelectValue>
             </SelectTrigger>
             <SelectContent className="select-content-rounded">
                 <SelectItem value="Very High" className="select-item-hover">Very High</SelectItem>
@@ -179,7 +206,7 @@ export default function MasterList() {
     const [showFilters, setShowFilters] = useState(false);
     const [pendingChanges, setPendingChanges] = useState<Record<string, Partial<Item>>>({});
     const [filters, setFilters] = useState<FilterOptions>({
-        statuses: ['not_started', 'in_progress'],
+        statuses: ['Not Started', 'Working On It'],
         sortBy: 'priority',
         sortDirection: 'asc',
         type: undefined
@@ -212,13 +239,23 @@ export default function MasterList() {
     }, [filters]);
 
     const handleUpdateField = (id: string, field: string, value: any) => {
-        setPendingChanges(prev => ({
-            ...prev,
-            [id]: {
-                ...prev[id],
-                [field]: value
+        setPendingChanges(prev => {
+            const changes = { ...prev };
+            if (field === 'priority') {
+                // When updating priority, store both the display value and numeric value
+                changes[id] = {
+                    ...changes[id],
+                    priority: PRIORITY_MAP[value as keyof typeof PRIORITY_MAP],
+                    displayPriority: value
+                };
+            } else {
+                changes[id] = {
+                    ...changes[id],
+                    [field]: value
+                };
             }
-        }));
+            return changes;
+        });
     };
 
     const handleSaveChanges = async () => {
@@ -263,6 +300,35 @@ export default function MasterList() {
     };
 
     const hasPendingChanges = Object.keys(pendingChanges).length > 0;
+
+    const handleDeleteItem = async (id: string) => {
+        if (!confirm('Are you sure you want to delete this item?')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`http://localhost:5000/api/items/${id}`, {
+                method: 'DELETE',
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to delete item');
+            }
+
+            // Remove item from local state
+            setItems(items.filter(item => item.id !== id));
+            // Remove from pending changes if present
+            setPendingChanges(prev => {
+                const newChanges = { ...prev };
+                delete newChanges[id];
+                return newChanges;
+            });
+        } catch (error) {
+            console.error('Error deleting item:', error);
+            alert(error instanceof Error ? error.message : 'Failed to delete item');
+        }
+    };
 
     return (
         <div className="page-container">
@@ -316,10 +382,12 @@ export default function MasterList() {
                 <div className="grid-container">
                     <div className="grid-header">
                         <div className="grid-header-cell">Item</div>
-                        <div className="grid-header-cell center">Status</div>
+                        <div className="grid-header-cell">Notes</div>
+                        <div className="grid-header-cell">Status</div>
                         <div className="grid-header-cell">Due Date</div>
                         <div className="grid-header-cell">Created On</div>
                         <div className="grid-header-cell">Priority</div>
+                        <div className="grid-header-cell"></div>
                     </div>
                     <div className="grid-body">
                         {items.map((item) => {
@@ -332,10 +400,17 @@ export default function MasterList() {
                                         <EditableField
                                             value={displayItem.title}
                                             onChange={(value) => handleUpdateField(item.id, 'title', value)}
-                                            className="item-title"
+                                            className="item-title text-black font-medium"
                                         />
                                     </div>
-                                    <div className="grid-cell center">
+                                    <div className="grid-cell">
+                                        <EditableField
+                                            value={displayItem.notes || ''}
+                                            onChange={(value) => handleUpdateField(item.id, 'notes', value)}
+                                            className="text-gray-600 text-sm"
+                                        />
+                                    </div>
+                                    <div className="grid-cell">
                                         <StatusSelect
                                             value={displayItem.status}
                                             onChange={(value) => handleUpdateField(item.id, 'status', value)}
@@ -343,7 +418,7 @@ export default function MasterList() {
                                     </div>
                                     <div className="grid-cell">
                                         <EditableField
-                                            value={displayItem.dueDate || 'N/A'}
+                                            value={displayItem.dueDate || ''}
                                             onChange={(value) => handleUpdateField(item.id, 'dueDate', value)}
                                             type="date"
                                         />
@@ -354,8 +429,18 @@ export default function MasterList() {
                                     <div className="grid-cell">
                                         <PrioritySelect
                                             value={displayItem.priority}
+                                            displayValue={displayItem.displayPriority}
                                             onChange={(value) => handleUpdateField(item.id, 'priority', value)}
                                         />
+                                    </div>
+                                    <div className="grid-cell flex justify-center">
+                                        <button
+                                            onClick={() => handleDeleteItem(item.id)}
+                                            className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                                            title="Delete item"
+                                        >
+                                            <Trash2 className="h-4 w-4 text-gray-500 hover:text-red-500" />
+                                        </button>
                                     </div>
                                 </div>
                             );

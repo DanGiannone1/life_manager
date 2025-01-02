@@ -107,22 +107,22 @@ The main page will be blank for now. There will be a sidebar to navigate to the 
 ```
 TaskDocument:
     id: string
-    userId: string
+    user_id: string
     type: "task" | "goal"
     title: string
     status: "not_started" | "working_on_it" | "complete"
     priority: int # 0-100
-    dynamicPriority: int # 0-100
+    dynamic_priority: int # 0-100
     notes: string, optional
-    dueDate: string, optional # ISO date string
-    createdAt: string # ISO date string
-    updatedAt: string # ISO date string
-    categoryId: string, optional
-    subcategoryId: string, optional
-    isRecurring: boolean, optional
-    frequencyInDays: number, optional
-    completionHistory: Array of { completedAt: string, nextDueDate: string }, optional
-    goalIds: Array<string>, optional # References to GoalDocuments if this task is part of one or more goals
+    due_date: string, optional # ISO date string
+    created_at: string # ISO date string
+    updated_at: string # ISO date string
+    category_id: string, optional
+    subcategory_id: string, optional
+    is_recurring: boolean, optional
+    frequency_in_days: number, optional
+    completion_history: Array of { completed_at: string, next_due_date: string }, optional
+    goal_ids: Array<string>, optional # References to GoalDocuments if this task is part of one or more goals
 }
 ```
 
@@ -130,23 +130,23 @@ TaskDocument:
 ```
 GoalDocument:
     id: string
-    userId: string
+    user_id: string
     type: "goal"
     title: string
     status: "not_started" | "working_on_it" | "complete"
     priority: int # 0-100
-    dynamicPriority: int # 0-100
+    dynamic_priority: int # 0-100
     notes: string, optional
-    dueDate: string, optional # ISO date string
-    createdAt: string # ISO date string
-    updatedAt: string # ISO date string
-    categoryId: string, optional
-    subcategoryId: string, optional
-    isRecurring: boolean, optional
-    frequencyInDays: number, optional
-    completionHistory: Array of { completedAt: string, nextDueDate: string }, optional
-    targetDate: string, optional # ISO date string
-    associatedTaskIds: Array<string>, optional # References to TaskDocuments that are part of this goal
+    due_date: string, optional # ISO date string
+    created_at: string # ISO date string
+    updated_at: string # ISO date string
+    category_id: string, optional
+    subcategory_id: string, optional
+    is_recurring: boolean, optional
+    frequency_in_days: number, optional
+    completion_history: Array of { completed_at: string, next_due_date: string }, optional
+    target_date: string, optional # ISO date string
+    associated_task_ids: Array<string>, optional # References to TaskDocuments that are part of this goal
 }
 ```
     
@@ -156,7 +156,7 @@ GoalDocument:
 ```
 CategoryDocument:
     id: string;
-    userId: string;
+    user_id: string;
     name: string;
     color: string, optional
     subcategories: Array of { id: string, name: string }, optional
@@ -235,17 +235,53 @@ interface CategoryItem {
 
 ### Mapping Functions
 
-The following functions will be used to map between backend and frontend data models:
+The backend handles all case conversions between snake_case (Python/backend) and camelCase (TypeScript/frontend) and hardcoded display values ("Not Started", "Working On It", "Complete"). The frontend always works with camelCase or display values, while the backend internally uses snake_case and handles conversions.
 
-*   `mapTaskDocumentToTaskItem` (handles `snake_case` to `camelCase`, status and priority conversions, and maps numerical priority to display priority)
-*   `mapGoalDocumentToGoalItem` (handles `snake_case` to `camelCase`, status and priority conversions, and maps numerical priority to display priority)
-*   `mapCategoryDocumentToCategoryItem` (handles `snake_case` to `camelCase`)
+#### Case Conversion Functions
 
-These functions will handle data transformations, formatting, and any other necessary conversions.
+```python
+def to_snake_case(data: dict) -> dict:
+    """Convert a dictionary's keys from camelCase to snake_case recursively."""
+
+def to_camel_case(data: dict) -> dict:
+    """Convert a dictionary's keys from snake_case to camelCase recursively."""
+```
+
+These utility functions handle all case conversions between the frontend and backend:
+- `to_snake_case`: Converts incoming frontend payloads from camelCase to snake_case
+- `to_camel_case`: Converts outgoing backend responses from snake_case to camelCase
+
+Both functions handle nested dictionaries and arrays automatically.
+
+#### Usage in API Endpoints
+
+1. **Incoming Requests (Frontend → Backend)**
+   - All incoming request data is automatically converted from camelCase to snake_case using `to_snake_case()`
+   - Example: `userId` → `user_id`, `dueDate` → `due_date`
+
+2. **Database Operations**
+   - All data is stored in snake_case format in CosmosDB
+   - Internal backend operations use snake_case consistently
+
+3. **Outgoing Responses (Backend → Frontend)**
+   - All outgoing response data is converted from snake_case to camelCase using `to_camel_case()`
+   - Example: `user_id` → `userId`, `due_date` → `dueDate`
+
+4. **Special Handling**
+   - Status values are stored in snake_case internally (`not_started`, `working_on_it`, `complete`)
+   - Status values are converted to Title Case for frontend display ("Not Started", "Working on it", "Complete")
+   - Priority values maintain their format ("Very High", "High", etc.) but are mapped to numeric values internally
+
+This approach ensures:
+- Consistent data format in the database (snake_case)
+- Consistent data format in the frontend (camelCase)
+- Automatic conversion at API boundaries
+- No manual conversion needed in frontend code
+- Proper handling of nested objects and arrays
 
 ### Data Transfer Contract
 
-The data models defined above, along with the mapping functions, form the contract between the frontend and backend. Any changes to these models or functions should be carefully considered and communicated between teams.
+The data models defined above, along with the case conversion functions, form the contract between the frontend and backend. The frontend can always expect camelCase keys in responses, and should always send camelCase keys in requests. The backend handles all necessary conversions.
     
     
 
