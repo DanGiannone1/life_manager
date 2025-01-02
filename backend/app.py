@@ -5,7 +5,7 @@ import hashlib
 import secrets
 from datetime import datetime, timezone
 import uuid
-import google.generativeai as genai
+
 import re
 import json
 

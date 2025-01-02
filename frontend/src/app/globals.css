@@ -28,6 +28,11 @@
   --text-tertiary: #999999;
 }
 
+/* Weekly Plan Page */
+.content-grid {
+  @apply grid md:grid-cols-3 gap-6;
+}
+
 @layer base {
   body {
     @apply bg-white relative min-h-screen;
@@ -56,6 +61,50 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes checkmark {
+  0% {
+    transform: scale(0) rotate(45deg);
+    opacity: 0;
+  }
+  35% {
+    transform: scale(0) rotate(45deg);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.2) rotate(45deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(45deg);
+    opacity: 1;
+  }
+}
+
+@keyframes complete {
+  0% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  30% {
+    transform: translateX(5px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(30px);
+    opacity: 0;
+  }
+}
+
+@layer utilities {
+  .animate-check {
+    animation: checkmark 0.4s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+  }
+
+  .animate-complete {
+    animation: complete 0.8s ease-out forwards;
   }
 }
 
@@ -96,7 +145,7 @@
   }
 
   .grid-header {
-    @apply grid grid-cols-[1fr_200px_135px_120px_120px_120px_40px] gap-4
+    @apply grid grid-cols-7 gap-4
            px-4 py-3 bg-gray-50 border-b border-gray-200;
   }
 
@@ -113,7 +162,7 @@
   }
 
   .grid-row {
-    @apply grid grid-cols-[1fr_200px_135px_120px_120px_120px_40px] gap-4
+    @apply grid grid-cols-7 gap-4
            px-4 py-3 hover:bg-gray-50 transition-colors
            items-center;
   }

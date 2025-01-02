@@ -11,39 +11,140 @@ This is a personal project to help me manage my life. The main goal is to help m
 
 1. Home Page - blank for now.
 
+## Frontend Architecture
+
+```mermaid
+graph TD
+    App[App Layout] --> Home[Home Page]
+    App --> Weekly[Weekly Plan Page]
+    App --> Master[Master List Page]
+    
+    %% Weekly Plan Components
+    Weekly --> WP_TaskList[TaskList Component]
+    Weekly --> WP_Calendar[Calendar Grid]
+    WP_Calendar --> WP_CalendarDay[CalendarDay Component]
+    
+    %% Master List Components
+    Master --> ML_Filters[ItemFilters Component]
+    Master --> ML_Table[Item Table]
+    Master --> ML_AddDialog[AddItemDialog Component]
+    
+    %% API Calls
+    WP_TaskList -- GET /api/get-master-list --> API((Backend API))
+    Weekly -- PATCH /api/batch-update --> API
+    ML_Table -- GET /api/get-master-list --> API
+    ML_Table -- PATCH /api/batch-update --> API
+    ML_AddDialog -- POST /api/items --> API
+    
+    %% Styling
+    style App fill:#f9f,stroke:#333,stroke-width:2px
+    style Home fill:#bbf,stroke:#333,stroke-width:1px
+    style Weekly fill:#bbf,stroke:#333,stroke-width:1px
+    style Master fill:#bbf,stroke:#333,stroke-width:1px
+    style API fill:#fcf,stroke:#333,stroke-width:2px
+```
+
 ## 2. Weekly Plan Page
 
 The Weekly Plan page provides a weekly calendar view where users can schedule tasks. It allows users to visualize their week and manage their time effectively.
 
 **Functionality:**
  
-*   **Calendar Display:** The main view is a weekly calendar, starting on Sunday.
-*   **Week Selection:** Users can select the week to view using an intuitive UI element (e.g., a date picker or navigation buttons). The default view is the current week.
-*   **Task List:** A list of tasks from the master list is displayed on the left side of the page.
-*   **Drag and Drop:** Users can drag and drop tasks from the task list onto specific days in the calendar.
-*   **Task Scheduling:** When a task is dropped onto a day, it is scheduled for that day.
-*   **Task Display:** Tasks scheduled for a day are displayed on the calendar for that day.
+*   **Calendar Display:** The main view is a weekly calendar with a 7-day grid layout, starting from the week of the selected date.
+*   **Week Navigation:** Users can navigate between weeks using "Previous Week" and "Next Week" buttons. The default view is the current week.
+*   **Task List:** A fixed-width (280px) sidebar displays unscheduled tasks from the master list that are either "Not Started" or "Working On It".
+*   **Drag and Drop:** Users can:
+    - Drag tasks from the task list onto specific days in the calendar
+    - Drag tasks between different days in the calendar
+    - Drag tasks back to the task list to unschedule them
+*   **Task Completion:** Tasks can be marked as complete directly from the calendar with an animated checkbox.
+*   **Task Display:** Each task card shows:
+    - Task title
+    - Priority badge with color coding
+    - Remove button (appears on hover)
+    - Completion checkbox
 
 **User Interactions:**
  
-*   **Week Selection:** Users can select a week using a date picker or navigation buttons.
-*   **Drag and Drop:** Users can drag tasks from the task list to the calendar.
-*   **Task Interaction:** Users can interact with tasks on the calendar (e.g., view details, edit status).
+*   **Week Navigation:** Users can navigate weeks using "Previous Week" and "Next Week" buttons in the header.
+*   **Drag and Drop:**
+    - Tasks can be dragged from the task list to any day
+    - Tasks can be dragged between days
+    - Tasks can be dragged back to the task list
+*   **Task Actions:**
+    - Click the checkbox to mark a task as complete (with animation)
+    - Click the X button to remove a task from a day (returns to task list)
+    - Hover over tasks to see additional actions
 
 **Data Flow:**
  
-1.  **Initial Load:** When the page loads, it fetches all tasks from the backend API. The current week is displayed by default.
-2.  **Week Selection:** When the user selects a different week, the calendar updates to display that week.
-3.  **Drag and Drop:** When a user drags a task onto a day, the task's scheduled date is updated in the backend.
-4.  **Task Updates:** When a task is updated (e.g., status change), the changes are sent to the backend API, and the calendar is updated.
+1.  **Initial Load:** 
+    - Fetches unscheduled tasks from `/api/get-master-list` with filters:
+      - type=task
+      - statuses=Not Started,Working On It
+2.  **Task Scheduling:**
+    - UI updates immediately when tasks are dragged
+    - Tasks are removed from source (task list or calendar day)
+    - Tasks are added to target day
+3.  **Task Completion:**
+    - UI shows completion animation
+    - Task is removed from calendar after animation
+    - Backend is updated via `/api/batch-update` to mark task as Complete
+4.  **Error Handling:**
+    - Loading states are shown during data fetches
+    - Error messages are displayed if API calls fail
 
 **Component Breakdown:**
 
-*   **`WeeklyPlan` Component:** The main component for the weekly plan page. It manages the state of the calendar, task list, and selected week. It also handles API interaction for fetching and updating tasks.
-*   **`TaskList` Component:** A component for displaying the list of tasks.
-*   **`Calendar` Component:** A component for displaying the weekly calendar.
-*   **`CalendarDay` Component:** A component for displaying a single day in the calendar.
-*   **`DraggableTask` Component:** A component for displaying a task that can be dragged and dropped.
+*   **`WeeklyPlanPage` Component (`/weekly-plan/page.tsx`):**
+    - Main container with flex layout
+    - Manages all state and data flow
+    - Handles week navigation and date calculations
+    - Contains task list sidebar and calendar grid
+
+*   **`TaskList` Component (`/components/weekly-plan/task-list.tsx`):**
+    - Fixed-width sidebar (280px)
+    - Displays unscheduled tasks
+    - Handles drag and drop interactions
+    - Shows loading and error states
+    - Displays task cards with title, priority, and status
+
+*   **`CalendarDay` Component (`/components/weekly-plan/calendar-day.tsx`):**
+    - Represents a single day in the calendar
+    - Handles drag and drop for tasks
+    - Manages task completion animations
+    - Displays task cards with completion UI
+
+**Visual Design:**
+
+*   **Layout:**
+    - Full-height layout with fixed sidebar
+    - 7-column grid for calendar days
+    - Responsive design with proper overflow handling
+
+*   **Task Cards:**
+    - White background with subtle border
+    - Hover effects for better interaction feedback
+    - Priority badges with color coding
+    - Animated completion checkbox
+    - Hidden remove button that appears on hover
+
+*   **Styling:**
+    - Uses TailwindCSS for styling
+    - Custom animations for task completion
+    - Consistent spacing and typography
+    - Color-coded priority and status badges
+    - Drag and drop visual feedback with blue highlight
+
+**State Management:**
+
+*   **Local State:**
+    - `selectedDate`: Current selected week
+    - `unscheduledTasks`: Tasks in the sidebar
+    - `weeklyTasks`: Map of date strings to task arrays
+    - `loading`: Loading state for API calls
+    - `error`: Error state for API calls
+    - `completingTasks`: Set of task IDs being completed
 
 3. Master List Page - Shows all items (tasks and goals). Ability to filter and sort. Ability to add new tasks and goals.
     
