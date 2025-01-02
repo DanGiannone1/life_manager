@@ -12,8 +12,46 @@ This is a personal project to help me manage my life. The main goal is to help m
 
 1. Home Page - blank for now.
 2. Weekly Plan Page - blank for now.
-3. Master List Page - Shows all items (tasks and goals). Ability to filter and sort. Ability to add new tasks and goals. 
-    a. Item Card - Main UI component for displaying an item. Shows various fields from the data model. 
+3. Master List Page - Shows all items (tasks and goals). Ability to filter and sort. Ability to add new tasks and goals.
+    
+    **Functionality:**
+    
+    *   **Display:** The page displays a list of items (tasks and goals) in a tabular format. Each row represents an item, and columns display various fields such as title, notes, status, due date, created date, and priority.
+    *   **Filtering:** Users can filter items by status (Not Started, Working On It, Complete) and type (task, goal).
+    *   **Sorting:** Users can sort items by priority, due date, or created date in ascending or descending order.
+    *   **Editing:** Users can edit the title, notes, status, due date, and priority of an item directly in the table.
+    *   **Adding Items:** Users can add new items (tasks or goals) using a dialog.
+    *   **Deleting Items:** Users can delete items from the list.
+    *   **Saving Changes:** Users can save all changes made to items in a single batch operation.
+    
+    **User Interactions:**
+    
+    *   **Filter Panel:** A filter panel can be toggled to show or hide filtering options.
+    *   **Status Selection:** Users can change the status of an item using a dropdown select.
+    *   **Priority Selection:** Users can change the priority of an item using a dropdown select.
+    *   **Editable Fields:** Users can click on editable fields (title, notes, due date) to edit them directly in the table.
+    *   **Save Button:** A save button is enabled when there are pending changes. Clicking the save button sends all changes to the backend.
+    *   **Add Item Button:** An add item button opens a dialog for creating new items.
+    *   **Delete Button:** A delete button is available for each item to delete it.
+    
+    **Data Flow:**
+    
+    1.  **Initial Load:** When the page loads, it fetches all items from the backend API based on the current filter and sort settings.
+    2.  **Filtering and Sorting:** When the user changes the filter or sort settings, the page fetches the updated list of items from the backend API.
+    3.  **Editing:** When the user edits an item, the changes are stored in a local state.
+    4.  **Saving Changes:** When the user clicks the save button, all pending changes are sent to the backend API in a single batch update request.
+    5.  **Adding Items:** When the user adds a new item, the item is sent to the backend API, and the page fetches the updated list of items.
+    6.  **Deleting Items:** When the user deletes an item, the item ID is sent to the backend API, and the page fetches the updated list of items.
+    
+    **Component Breakdown:**
+    
+    *   **`MasterList` Component:** The main component for the master list page. It manages the state of the items, filters, and pending changes. It also handles API interaction for fetching, updating, and deleting items.
+    *   **`ItemFilters` Component:** A component for displaying and managing the filter options.
+    *   **`EditableField` Component:** A reusable component for displaying and editing text, date, and other types of fields.
+    *   **`StatusSelect` Component:** A reusable component for displaying and selecting the status of an item.
+    *   **`PrioritySelect` Component:** A reusable component for displaying and selecting the priority of an item.
+    *   **`AddItemDialog` Component:** A dialog for adding new items.
+    
 4. Sidebar - Navigation to different pages.
 
 The main page will be blank for now. There will be a sidebar to navigate to the different pages.
