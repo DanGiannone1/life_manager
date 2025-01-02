@@ -13,34 +13,37 @@ This is a personal project to help me manage my life. The main goal is to help m
 
 ## 2. Weekly Plan Page
 
-The Weekly Plan page provides a view of tasks and goals scheduled for the current week. It allows users to focus on their immediate priorities and manage their time effectively.
+The Weekly Plan page provides a weekly calendar view where users can schedule tasks. It allows users to visualize their week and manage their time effectively.
 
 **Functionality:**
-
-*   **Display:** The page displays a list of items (tasks only) that are due within the current week. Items are grouped by day.
-*   **Filtering:** Users can filter items by status (Not Started, Working On It, Complete) and type (task, goal).
-*   **Sorting:** Users can sort items within each day by priority.
-*   **Editing:** Users can edit the status of an item directly on the weekly plan.
-*   **Navigation:** Users can navigate to previous and next weeks.
+ 
+*   **Calendar Display:** The main view is a weekly calendar, starting on Sunday.
+*   **Week Selection:** Users can select the week to view using an intuitive UI element (e.g., a date picker or navigation buttons). The default view is the current week.
+*   **Task List:** A list of tasks from the master list is displayed on the left side of the page.
+*   **Drag and Drop:** Users can drag and drop tasks from the task list onto specific days in the calendar.
+*   **Task Scheduling:** When a task is dropped onto a day, it is scheduled for that day.
+*   **Task Display:** Tasks scheduled for a day are displayed on the calendar for that day.
 
 **User Interactions:**
-
-*   **Date Navigation:** Buttons or controls to navigate to the previous and next weeks.
-*   **Status Selection:** Users can change the status of an item using a dropdown select.
-*   **Filter Panel:** A filter panel can be toggled to show or hide filtering options.
+ 
+*   **Week Selection:** Users can select a week using a date picker or navigation buttons.
+*   **Drag and Drop:** Users can drag tasks from the task list to the calendar.
+*   **Task Interaction:** Users can interact with tasks on the calendar (e.g., view details, edit status).
 
 **Data Flow:**
-
-1.  **Initial Load:** When the page loads, it fetches all items from the backend API that are due within the current week, based on the current filter settings.
-2.  **Filtering:** When the user changes the filter settings, the page fetches the updated list of items from the backend API.
-3.  **Editing:** When the user edits the status of an item, the changes are sent to the backend API, and the page fetches the updated list of items.
-4.  **Navigation:** When the user navigates to a different week, the page fetches the items for that week from the backend API.
+ 
+1.  **Initial Load:** When the page loads, it fetches all tasks from the backend API. The current week is displayed by default.
+2.  **Week Selection:** When the user selects a different week, the calendar updates to display that week.
+3.  **Drag and Drop:** When a user drags a task onto a day, the task's scheduled date is updated in the backend.
+4.  **Task Updates:** When a task is updated (e.g., status change), the changes are sent to the backend API, and the calendar is updated.
 
 **Component Breakdown:**
 
-*   **`WeeklyPlan` Component:** The main component for the weekly plan page. It manages the state of the items, filters, and current week. It also handles API interaction for fetching and updating items.
-*   **`ItemFilters` Component:** A component for displaying and managing the filter options.
-*   **`StatusSelect` Component:** A reusable component for displaying and selecting the status of an item.
+*   **`WeeklyPlan` Component:** The main component for the weekly plan page. It manages the state of the calendar, task list, and selected week. It also handles API interaction for fetching and updating tasks.
+*   **`TaskList` Component:** A component for displaying the list of tasks.
+*   **`Calendar` Component:** A component for displaying the weekly calendar.
+*   **`CalendarDay` Component:** A component for displaying a single day in the calendar.
+*   **`DraggableTask` Component:** A component for displaying a task that can be dragged and dropped.
 
 3. Master List Page - Shows all items (tasks and goals). Ability to filter and sort. Ability to add new tasks and goals.
     
