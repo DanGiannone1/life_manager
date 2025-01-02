@@ -15,6 +15,7 @@ This is a personal project to help me manage my life. The main goal is to help m
 
 ```mermaid
 graph TD
+    %% Core Layout
     App[App Layout] --> Home[Home Page]
     App --> Weekly[Weekly Plan Page]
     App --> Master[Master List Page]
@@ -29,19 +30,28 @@ graph TD
     Master --> ML_Table[Item Table]
     Master --> ML_AddDialog[AddItemDialog Component]
     
-    %% API Calls
-    WP_TaskList -- GET /api/get-master-list --> API((Backend API))
-    Weekly -- PATCH /api/batch-update --> API
-    ML_Table -- GET /api/get-master-list --> API
-    ML_Table -- PATCH /api/batch-update --> API
-    ML_AddDialog -- POST /api/items --> API
+    %% API Endpoint - Using a smaller circle representation
+    API[(/api/get-master-list)]
     
-    %% Styling
-    style App fill:#f9f,stroke:#333,stroke-width:2px
-    style Home fill:#bbf,stroke:#333,stroke-width:1px
-    style Weekly fill:#bbf,stroke:#333,stroke-width:1px
-    style Master fill:#bbf,stroke:#333,stroke-width:1px
-    style API fill:#fcf,stroke:#333,stroke-width:2px
+    %% Single API Call from App Layout
+    App -.-|onMount| API
+    
+    %% Styling - Pages get a distinct fill color, components get a different fill
+    style App fill:#FF69B4,stroke:#333,stroke-width:4px,color:white
+    style Home fill:#9370DB,stroke:#333,stroke-width:2px,color:white
+    style Weekly fill:#9370DB,stroke:#333,stroke-width:2px,color:white
+    style Master fill:#9370DB,stroke:#333,stroke-width:2px,color:white
+    
+    %% Component styling
+    style WP_TaskList fill:#4169E1,stroke:#333,stroke-width:1px,color:white
+    style WP_Calendar fill:#4169E1,stroke:#333,stroke-width:1px,color:white
+    style WP_CalendarDay fill:#4169E1,stroke:#333,stroke-width:1px,color:white
+    style ML_Filters fill:#4169E1,stroke:#333,stroke-width:1px,color:white
+    style ML_Table fill:#4169E1,stroke:#333,stroke-width:1px,color:white
+    style ML_AddDialog fill:#4169E1,stroke:#333,stroke-width:1px,color:white
+    
+    %% API styling
+    style API fill:#50C878,stroke:#333,stroke-width:2px,color:white
 ```
 
 ## 2. Weekly Plan Page
