@@ -9,9 +9,39 @@ This is a personal project to help me manage my life. The main goal is to help m
 
 ## Main Features & Components
 
-
 1. Home Page - blank for now.
-2. Weekly Plan Page - blank for now.
+
+## 2. Weekly Plan Page
+
+The Weekly Plan page provides a view of tasks and goals scheduled for the current week. It allows users to focus on their immediate priorities and manage their time effectively.
+
+**Functionality:**
+
+*   **Display:** The page displays a list of items (tasks and goals) that are due within the current week. Items are grouped by day.
+*   **Filtering:** Users can filter items by status (Not Started, Working On It, Complete) and type (task, goal).
+*   **Sorting:** Users can sort items within each day by priority.
+*   **Editing:** Users can edit the status of an item directly on the weekly plan.
+*   **Navigation:** Users can navigate to previous and next weeks.
+
+**User Interactions:**
+
+*   **Date Navigation:** Buttons or controls to navigate to the previous and next weeks.
+*   **Status Selection:** Users can change the status of an item using a dropdown select.
+*   **Filter Panel:** A filter panel can be toggled to show or hide filtering options.
+
+**Data Flow:**
+
+1.  **Initial Load:** When the page loads, it fetches all items from the backend API that are due within the current week, based on the current filter settings.
+2.  **Filtering:** When the user changes the filter settings, the page fetches the updated list of items from the backend API.
+3.  **Editing:** When the user edits the status of an item, the changes are sent to the backend API, and the page fetches the updated list of items.
+4.  **Navigation:** When the user navigates to a different week, the page fetches the items for that week from the backend API.
+
+**Component Breakdown:**
+
+*   **`WeeklyPlan` Component:** The main component for the weekly plan page. It manages the state of the items, filters, and current week. It also handles API interaction for fetching and updating items.
+*   **`ItemFilters` Component:** A component for displaying and managing the filter options.
+*   **`StatusSelect` Component:** A reusable component for displaying and selecting the status of an item.
+
 3. Master List Page - Shows all items (tasks and goals). Ability to filter and sort. Ability to add new tasks and goals.
     
     **Functionality:**
@@ -353,6 +383,17 @@ Query Parameters:
 - `sortBy`: Field to sort by (priority, dueDate, createdAt)
 - `sortDirection`: Sort direction (asc, desc)
 - `type`: Filter by item type (task, goal)
+
+### GET /api/get-weekly-items
+Retrieves the list of items for the current week with optional filtering and sorting.
+
+Query Parameters:
+- `statuses`: Comma-separated list of status values to filter by
+- `sortBy`: Field to sort by (priority)
+- `sortDirection`: Sort direction (asc, desc)
+- `type`: Filter by item type (task, goal)
+- `startDate`: ISO date string for the start of the week
+- `endDate`: ISO date string for the end of the week
 
 ### GET /api/items/{id}
 Retrieves a single item by its ID.
