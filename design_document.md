@@ -17,7 +17,7 @@ The Weekly Plan page provides a view of tasks and goals scheduled for the curren
 
 **Functionality:**
 
-*   **Display:** The page displays a list of items (tasks and goals) that are due within the current week. Items are grouped by day.
+*   **Display:** The page displays a list of items (tasks only) that are due within the current week. Items are grouped by day.
 *   **Filtering:** Users can filter items by status (Not Started, Working On It, Complete) and type (task, goal).
 *   **Sorting:** Users can sort items within each day by priority.
 *   **Editing:** Users can edit the status of an item directly on the weekly plan.
