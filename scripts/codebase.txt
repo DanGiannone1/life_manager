@@ -1,17 +1,18 @@
 Here is my codebase:
 
-<File: backend/app.py>
+<File: app.py>
+# File: backend/app.py
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from cosmos_db import CosmosDBManager
 import hashlib
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import uuid
-import google.generativeai as genai
+
 import re
 import json
-
 
 app = Flask(__name__)
 CORS(app)
@@ -33,17 +34,13 @@ def to_snake_case(data: dict) -> dict:
 
     new_dict = {}
     for key, value in data.items():
-        # Convert key from camelCase to snake_case
         snake_key = re.sub('([a-z0-9])([A-Z])', r'\1_\2', key).lower()
-        
-        # Handle nested dictionaries and lists
         if isinstance(value, dict):
             new_dict[snake_key] = to_snake_case(value)
         elif isinstance(value, list):
             new_dict[snake_key] = [to_snake_case(item) if isinstance(item, dict) else item for item in value]
         else:
             new_dict[snake_key] = value
-            
     return new_dict
 
 def to_camel_case(data: dict) -> dict:
@@ -53,51 +50,26 @@ def to_camel_case(data: dict) -> dict:
 
     new_dict = {}
     for key, value in data.items():
-        # Convert key from snake_case to camelCase
         components = key.split('_')
         camel_key = components[0] + ''.join(x.title() for x in components[1:])
         
-        # Handle nested dictionaries and lists
         if isinstance(value, dict):
             new_dict[camel_key] = to_camel_case(value)
         elif isinstance(value, list):
             new_dict[camel_key] = [to_camel_case(item) if isinstance(item, dict) else item for item in value]
         else:
             new_dict[camel_key] = value
-            
     return new_dict
 
 def generate_hash_id(user_id: str, title: str, timestamp: str) -> str:
-    """
-    Generate a unique hash ID from user_id, title, and timestamp.
-    
-    Args:
-        user_id: The user's ID
-        title: The item's title
-        timestamp: ISO format timestamp with second precision
-    
-    Returns:
-        A 23-character string containing a hash and salt
-    """
     if not all([user_id, title, timestamp]):
         raise ValueError("Missing required parameters for hash generation")
-
-    # Add a 4-character random salt for extra uniqueness
     salt = secrets.token_hex(2)  # 2 bytes = 4 hex characters
-    
-    # Sanitize inputs (remove whitespace and normalize)
     user_id = user_id.strip()
     title = title.strip()
-    
-    # Combine elements for hashing
     combined = f"{user_id}::{title}::{timestamp}::{salt}"
-    
-    # Create SHA-256 hash
     hash_object = hashlib.sha256(combined.encode('utf-8'))
-    # Get first 19 chars of the hex digest
     short_hash = hash_object.hexdigest()[:19]
-    
-    # Format: [hash]_[salt] (23 characters total)
     return f"{short_hash}_{salt}"
 
 @app.route('/api/create-item', methods=['POST'])
@@ -131,11 +103,8 @@ def create_item():
         priority = data.get('priority', 'Medium')
         if priority not in priority_map:
             return jsonify({'error': f'Invalid priority value. Must be one of: {", ".join(priority_map.keys())}'}), 400
-            
-        # Get current timestamp in ISO format with second precision
-        current_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         
-        # Generate hash ID
+        current_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         try:
             hash_id = generate_hash_id(
                 user_id=data['user_id'],
@@ -144,20 +113,18 @@ def create_item():
             )
         except ValueError as e:
             return jsonify({'error': str(e)}), 400
-            
-        # Add type prefix
+
         type_prefix = 't' if data['type'] == 'task' else 'g'
         item_id = f"{type_prefix}_{hash_id}"
-        
-        # Create the base item structure
+
         item = {
             'id': item_id,
-            'user_id': data['user_id'],  # This should come from authentication in production
-            'type': data['type'],  # 'task' or 'goal'
+            'user_id': data['user_id'],
+            'type': data['type'],
             'title': data['title'],
             'status': status,
-            'priority': priority_map[priority],  # 0-100 scale
-            'dynamic_priority': priority_map[priority],  # Initially same as priority
+            'priority': priority_map[priority],
+            'dynamic_priority': priority_map[priority],
             'notes': data.get('notes'),
             'due_date': data.get('due_date'),
             'created_at': current_time,
@@ -168,21 +135,15 @@ def create_item():
             'frequency_in_days': data.get('frequency_in_days'),
             'completion_history': []
         }
-        
-        # Add type-specific fields
+
+        # Type-specific fields
         if data['type'] == 'task':
-            item.update({
-                'goal_ids': data.get('goal_ids', [])
-            })
-        elif data['type'] == 'goal':
-            item.update({
-                'target_date': data.get('target_date'),
-                'associated_task_ids': data.get('associated_task_ids', [])
-            })
-        
-        # Create the item in CosmosDB
+            item['goal_ids'] = data.get('goal_ids', [])
+        else:
+            item['target_date'] = data.get('target_date')
+            item['associated_task_ids'] = data.get('associated_task_ids', [])
+
         created_item = cosmos_db.create_item(item)
-        
         if created_item:
             return jsonify({'message': 'Item created successfully'}), 201
         else:
@@ -194,54 +155,49 @@ def create_item():
 @app.route('/api/get-master-list', methods=['GET'])
 def get_master_list():
     try:
-        # For now, we'll just get all items for the test user
-        # In production, this would come from authentication
+        # Hardcode for test user
         user_id = 'test-user'
         
-        # Get filter parameters
         statuses = request.args.get('statuses', '').split(',') if request.args.get('statuses') else None
         sort_by = request.args.get('sortBy', 'priority')
         sort_direction = request.args.get('sortDirection', 'asc')
         item_type = request.args.get('type')
-        
-        # Build the query
+
         query = "SELECT * FROM c WHERE c.user_id = @user_id"
         params = [{"name": "@user_id", "value": user_id}]
         
-        # Add type filter if specified
         if item_type:
             query += " AND c.type = @type"
             params.append({"name": "@type", "value": item_type})
-            
-        # Add status filter if specified
+        
         if statuses and len(statuses) > 0 and not (len(statuses) == 1 and statuses[0] == ''):
+            status_map = {
+                'Not Started': 'not_started',
+                'Working On It': 'working_on_it',
+                'Complete': 'complete'
+            }
             status_conditions = []
             for i, status in enumerate(statuses):
                 param_name = f"@status{i}"
                 status_conditions.append(f"c.status = {param_name}")
-                params.append({"name": param_name, "value": status.lower().replace(' ', '_')})
+                params.append({"name": param_name, "value": status_map.get(status, status.lower().replace(' ', '_'))})
             query += f" AND ({' OR '.join(status_conditions)})"
-            
-        # Add sorting
+
         sort_field = {
-            'priority': 'c.priority',  # Using raw priority number now
+            'priority': 'c.priority',
             'dueDate': 'c.due_date',
             'createdAt': 'c.created_at'
         }.get(sort_by, 'c.priority')
-        
-        # For priority, we want asc to mean highest priority first (90 = Very High)
+
+        # For priority, we want asc to mean highest priority first (so invert if sort_by=priority)
         if sort_by == 'priority':
             sort_direction = 'asc' if sort_direction == 'desc' else 'desc'
-            
         query += f" ORDER BY {sort_field} {sort_direction.upper()}"
-        
-        # Query items from CosmosDB
+
         items = cosmos_db.query_items(query, params, partition_key=user_id)
-        
         if items is None:
             return jsonify([]), 200
-            
-        # Priority mapping for display
+
         priority_map = {
             90: 'Very High',
             70: 'High',
@@ -269,7 +225,6 @@ def batch_update():
         if not data.get('updates'):
             return jsonify({'error': 'No updates provided'}), 400
 
-        # Validate batch size
         if len(data['updates']) > 100:
             return jsonify({'error': 'Maximum batch size is 100 items'}), 400
 
@@ -291,51 +246,98 @@ def batch_update():
         current_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
         for update in data['updates']:
-            item_id = update.get('id')
-            if not item_id:
-                continue
+            try:
+                item_id = update.get('id')
+                if not item_id:
+                    continue
 
-            # Convert status from display format to storage format
-            if 'status' in update:
-                display_status = update['status']
-                storage_status = REVERSE_STATUS_MAP.get(display_status)
-                if not storage_status:
-                    return jsonify({'error': f'Invalid status value for item {item_id}. Must be one of: {", ".join(REVERSE_STATUS_MAP.keys())}'}, 400)
-                update['status'] = storage_status
+                # Convert status from display format to storage format
+                if 'status' in update:
+                    display_status = update['status']
+                    storage_status = REVERSE_STATUS_MAP.get(display_status)
+                    if not storage_status:
+                        return jsonify({
+                            'error': f'Invalid status value "{display_status}" for item {item_id}. Must be one of: {", ".join(REVERSE_STATUS_MAP.keys())}'
+                        }), 400
+                    update['status'] = storage_status
 
-            # Handle priority if it's being updated
-            if 'priority' in update:
-                display_priority = update['priority']
-                if display_priority not in priority_map:
-                    return jsonify({'error': f'Invalid priority value for item {item_id}. Must be one of: {", ".join(priority_map.keys())}'}, 400)
-                update['priority'] = priority_map[display_priority]
+                # Handle priority
+                if 'priority' in update:
+                    display_priority = update['priority']
+                    if display_priority not in priority_map:
+                        return jsonify({
+                            'error': f'Invalid priority value for item {item_id}. Must be one of: {", ".join(priority_map.keys())}'
+                        }), 400
+                    update['priority'] = priority_map[display_priority]
 
-            # Add updated_at timestamp
-            update['updated_at'] = current_time
-            
-            # Update the item in CosmosDB
-            if not cosmos_db.update_item(item_id, update):
-                return jsonify({'error': f'Failed to update item {item_id}'}), 400
+                # Always update updated_at
+                update['updated_at'] = current_time
+
+                # --------------------------
+                # RECURRING TASK LOGIC HERE
+                # --------------------------
+                # 1. Retrieve existing item from DB to check is_recurring, frequency, etc.
+                existing_item = cosmos_db.get_item_by_id(item_id)
+                if not existing_item:
+                    return jsonify({'error': f'Item {item_id} not found'}), 404
+
+                # 2. If the new status is 'complete' and it's a recurring task, override accordingly
+                if update.get('status', '').lower() == 'complete' and existing_item.get('is_recurring') is True:
+                    try:
+                        # Create a copy of the existing item to modify
+                        updated_item = existing_item.copy()
+                        
+                        # (A) Initialize completion_history if it doesn't exist
+                        if 'completion_history' not in updated_item:
+                            updated_item['completion_history'] = []
+                        
+                        # Add the new completion
+                        updated_item['completion_history'].append({
+                            'completed_at': current_time
+                        })
+                        
+                        # (B) Force status back to 'not_started'
+                        updated_item['status'] = 'not_started'
+                        
+                        # (C) Compute new due_date (only if frequency_in_days is valid)
+                        freq = updated_item.get('frequency_in_days') or 0
+                        if freq > 0:
+                            new_due = datetime.now(timezone.utc) + timedelta(days=freq)
+                            updated_item['due_date'] = new_due.replace(microsecond=0).isoformat()
+                        
+                        # Update the updated_at timestamp
+                        updated_item['updated_at'] = current_time
+                        
+                        # Now perform the actual update in Cosmos with the complete item
+                        result = cosmos_db.upsert_item(updated_item)
+                        if not result:
+                            raise ValueError(f'Failed to update recurring item {item_id}')
+                            
+                        continue  # Skip the normal update path since we've handled it specially
+                    except Exception as e:
+                        return jsonify({'error': f'Error updating recurring item {item_id}: {str(e)}'}), 400
+
+                # Now perform the actual update in Cosmos
+                result = cosmos_db.update_item(item_id, update)
+                if not result:
+                    return jsonify({'error': f'Failed to update item {item_id}'}), 400
+
+            except Exception as e:
+                return jsonify({'error': f'Error processing item {item_id}: {str(e)}'}), 400
 
         return jsonify({'message': 'Items updated successfully'}), 200
-
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        return jsonify({'error': f'Error in batch update: {str(e)}'}), 400
 
 @app.route('/api/items/<item_id>', methods=['DELETE'])
 def delete_item(item_id: str):
     try:
-        # For now, hardcode test-user
         user_id = 'test-user'
-        
-        # Delete the item
         success = cosmos_db.delete_item(item_id, user_id)
-        
         if success:
             return jsonify({'message': 'Item deleted successfully'}), 200
         else:
             return jsonify({'error': 'Failed to delete item'}), 404
-            
     except Exception as e:
         return jsonify({'error': str(e)}), 400
 
@@ -343,19 +345,8 @@ if __name__ == '__main__':
     app.run(debug=True, port=5000)
 
 --------------------------------------------------------------------------------
-<File: backend/cosmos_db.py>
-"""
-### cosmos_db.py ###
-
-This module handles interactions with Azure Cosmos DB, including database and container creation,
-and CRUD operations on documents. It automatically selects between key-based and DefaultAzureCredential
-authentication based on the presence of COSMOS_MASTER_KEY. Logging is configured to show only
-custom messages.
-
-Requirements:
-    azure-cosmos==4.5.1
-    azure-identity==1.12.0
-"""
+<File: cosmos_db.py>
+# File: backend/cosmos_db.py
 
 import os
 from typing import List, Dict, Any, Optional
@@ -364,6 +355,7 @@ from azure.cosmos import CosmosClient, exceptions, PartitionKey
 from azure.cosmos.container import ContainerProxy
 from azure.cosmos.database import DatabaseProxy
 from azure.identity import DefaultAzureCredential
+from datetime import datetime, timezone, timedelta
 
 class CosmosDBManager:
     def __init__(self, cosmos_host=None, cosmos_database_id=None, cosmos_container_id=None):
@@ -424,12 +416,6 @@ class CosmosDBManager:
         return container
 
     def create_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Create a new item in the container. Fails if an item with the same ID already exists.
-
-        :param item: The item to create
-        :return: The created item, or None if creation failed
-        """
         try:
             created_item = self.container.create_item(body=item)
             print(f"Item created with id: {created_item['id']}")
@@ -442,59 +428,48 @@ class CosmosDBManager:
             return None
 
     def update_item(self, item_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Update specific fields of an existing item in the container.
-
-        :param item_id: The ID of the item to update
-        :param updates: Dictionary of fields to update
-        :return: The updated item, or None if update failed
-        """
         try:
             # First, get the existing item
-            query = "SELECT * FROM c WHERE c.id = @id"
-            params = [{"name": "@id", "value": item_id}]
-            items = list(self.container.query_items(
-                query=query,
-                parameters=params,
-                enable_cross_partition_query=True
-            ))
+            existing_item = self.get_item_by_id(item_id)
+            if not existing_item:
+                raise ValueError(f"Item with id {item_id} not found")
             
-            if not items:
-                print(f"Item with id {item_id} not found")
-                return None
-            
-            # Get the existing item
-            existing_item = items[0]
-            
-            # Update the fields
+            # Update the existing item with new values
             existing_item.update(updates)
             
-            # Replace the item in the container
+            # Ensure we have the partition key (user_id)
+            if 'user_id' not in existing_item:
+                raise ValueError("user_id (partition key) is required for update operation")
+            
             updated_item = self.container.replace_item(
                 item=item_id,
-                body=existing_item
+                body=existing_item,
+                partition_key=existing_item['user_id']
             )
             print(f"Item updated with id: {updated_item['id']}")
             return updated_item
             
         except exceptions.CosmosHttpResponseError as e:
             print(f"An error occurred during update: {e.message}")
-            return None
+            raise  # Re-raise the exception to propagate it
+        except Exception as e:
+            print(f"An error occurred during update: {str(e)}")
+            raise  # Re-raise the exception to propagate it
 
     def upsert_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Upsert (create or update) an item in the container.
-
-        :param item: The item to upsert
-        :return: The upserted item, or None if upsert failed
-        """
         try:
-            upserted_item = self.container.upsert_item(body=item)
+            if 'user_id' not in item:
+                raise ValueError("user_id (partition key) is required for upsert operation")
+                
+            upserted_item = self.container.upsert_item(
+                body=item,
+                partition_key=item['user_id']
+            )
             print(f"Item upserted with id: {upserted_item['id']}")
             return upserted_item
         except exceptions.CosmosHttpResponseError as e:
             print(f"An error occurred during upsert: {e.message}")
-            return None
+            raise  # Re-raise the exception to propagate it
 
     def query_items(self, query: str, parameters: Optional[List[Dict[str, Any]]] = None, partition_key: Optional[str] = None) -> List[Dict[str, Any]]:
         try:
@@ -523,25 +498,12 @@ class CosmosDBManager:
             return False
 
     def get_items_by_user_id(self, user_id: str) -> List[Dict[str, Any]]:
-        """
-        Get all items for a specific user.
-
-        :param user_id: The user's ID
-        :return: List of items belonging to the user
-        """
         query = "SELECT * FROM c WHERE c.user_id = @user_id"
         parameters = [{"name": "@user_id", "value": user_id}]
         return self.query_items(query, parameters, partition_key=user_id)
 
     def bulk_update(self, updates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Update multiple items in a single operation.
-
-        :param updates: List of tuples containing (item_id, update_dict)
-        :return: List of updated items
-        """
         try:
-            # First get all items we need to update
             item_ids = [update['id'] for update in updates]
             query = "SELECT * FROM c WHERE c.id IN (@ids)"
             params = [{"name": "@ids", "value": item_ids}]
@@ -554,10 +516,7 @@ class CosmosDBManager:
             if not items:
                 return []
 
-            # Create a mapping of id to item for easy lookup
             items_dict = {item['id']: item for item in items}
-            
-            # Prepare all operations
             operations = []
             updated_items = []
             
@@ -565,16 +524,11 @@ class CosmosDBManager:
                 item_id = update.pop('id')
                 if item_id not in items_dict:
                     continue
-                    
-                # Get the existing item and update it
                 item = items_dict[item_id].copy()
                 item.update(update)
-                
-                # Add to operations list
                 operations.append(('upsert', item))
                 updated_items.append(item)
                 
-            # Execute all operations in a single batch
             if operations:
                 self.container.execute_multi(operations)
                 
@@ -584,551 +538,27 @@ class CosmosDBManager:
             print(f"An error occurred during bulk update: {e.message}")
             return []
 
-def example_create_item():
-    cosmos_db = CosmosDBManager()
-    new_item = {
-        'id': 'item1',
-        'user_id': 'test-user',
-        'name': 'John Doe',
-        'age': 30
-    }
-    created_item = cosmos_db.create_item(new_item)
-    if created_item:
-        print(f"Created item: {created_item}")
-    else:
-        print("Failed to create item. It might already exist.")
-
-def example_update_item():
-    cosmos_db = CosmosDBManager()
-    item_to_update = {
-        'id': 'item1',
-        'user_id': 'test-user',
-        'name': 'John Doe',
-        'age': 31  # Updated age
-    }
-    updated_item = cosmos_db.update_item(item_to_update)
-    if updated_item:
-        print(f"Updated item: {updated_item}")
-    else:
-        print("Failed to update item. It might not exist.")
-
-def example_upsert_item():
-    cosmos_db = CosmosDBManager()
-    item_to_upsert = {
-        'id': 'item2',
-        'user_id': 'test-user',
-        'name': 'Jane Doe',
-        'age': 28
-    }
-    upserted_item = cosmos_db.upsert_item(item_to_upsert)
-    if upserted_item:
-        print(f"Upserted item: {upserted_item}")
-    else:
-        print("Failed to upsert item.")
-
-def example_query_items():
-    cosmos_db = CosmosDBManager()
-    query = "SELECT * FROM c WHERE c.user_id = @user_id"
-    parameters = [{"name": "@user_id", "value": "test-user"}]
-    items = cosmos_db.query_items(query, parameters)
-    print(f"Queried items: {items}")
-
-def example_delete_item():
-    cosmos_db = CosmosDBManager()
-    if cosmos_db.delete_item('item1', 'test-user'):
-        print("Item deleted successfully")
-    else:
-        print("Failed to delete item")
-
-if __name__ == "__main__":
-    try:
-        example_create_item()
-        example_update_item()
-        example_upsert_item()
-        example_query_items()
-        example_delete_item()
-    except Exception as e:
-        print(f"An error occurred: {str(e)}")
---------------------------------------------------------------------------------
-<File: design_document.md>
-# Life Manager Design Document
-
-## 1. Introduction
-
-This document outlines the design for the Life Manager application, including data models, API endpoints, and other key considerations.
-
-This is a personal project to help me manage my life. The main goal is to help me manage my tasks and goals and stay organized and productive. 
-
-
-## Main Features & Components
-
-
-1. Home Page - blank for now.
-2. Weekly Plan Page - blank for now.
-3. Master List Page - Shows all items (tasks and goals). Ability to filter and sort. Ability to add new tasks and goals. 
-    a. Item Card - Main UI component for displaying an item. Shows various fields from the data model. 
-4. Sidebar - Navigation to different pages.
-
-The main page will be blank for now. There will be a sidebar to navigate to the different pages.
-
-
-
-## Project Structure
-
-```
-.
-├── backend
-│   ├── app.py
-│   ├── cosmos_db.py
-│   └── requirements.txt
-└── frontend
-    ├── .gitignore
-    ├── components.json
-    ├── eslint.config.mjs
-    ├── next.config.ts
-    ├── package-lock.json
-    ├── package.json
-    ├── postcss.config.mjs
-    ├── public
-    │   ├── branding
-    │   │   ├── next.svg
-    │   │   └── vercel.svg
-    │   ├── icons
-    │   │   ├── favicon.ico
-    │   │   └── site.webmanifest
-    │   └── images
-    │       ├── file.svg
-    │       ├── globe.svg
-    │       └── window.svg
-    ├── src
-    │   ├── app
-    │   │   ├── globals.css
-    │   │   ├── home
-    │   │   │   └── page.tsx
-    │   │   ├── layout.tsx
-    │   │   ├── master-list
-    │   │   │   └── page.tsx
-    │   │   ├── page.tsx
-    │   │   ├── sidebar
-    │   │   │   └── sidebar.tsx
-    │   │   └── weekly-plan
-    │   │       └── page.tsx
-    │   └── components
-    │       ├── items
-    │       │   ├── add-item-dialog.tsx
-    │       │   └── item-filters.tsx
-    │       └── ui
-    │           ├── badge.tsx
-    │           ├── button.tsx
-    │           ├── card.tsx
-    │           ├── checkbox.tsx
-    │           ├── dialog.tsx
-    │           ├── input.tsx
-    │           ├── label.tsx
-    │           ├── select.tsx
-    │           └── switch.tsx
-    ├── tailwind.config.ts
-    └── tsconfig.json
-```
-
-
-## Tech Stack
-
-### Backend
-
-- Python
-- Flask
-
-### Frontend
-
-- React
-- NextJS
-- TailwindCSS Styling
-- Shadcn Components
-- Lucide Icons
-
-### Database
-
-- CosmosDB
-
-
-## 3. Data Model
-
-### Backend Data Models (Python/CosmosDB)
-
-#### Task Document Schema
-```
-TaskDocument:
-    id: string
-    user_id: string
-    type: "task" | "goal"
-    title: string
-    status: "not_started" | "working_on_it" | "complete"
-    priority: int # 0-100
-    dynamic_priority: int # 0-100
-    notes: string, optional
-    due_date: string, optional # ISO date string
-    created_at: string # ISO date string
-    updated_at: string # ISO date string
-    category_id: string, optional
-    subcategory_id: string, optional
-    is_recurring: boolean, optional
-    frequency_in_days: number, optional
-    completion_history: Array of { completed_at: string, next_due_date: string }, optional
-    goal_ids: Array<string>, optional # References to GoalDocuments if this task is part of one or more goals
-}
-```
-
-#### Goal Document Schema
-```
-GoalDocument:
-    id: string
-    user_id: string
-    type: "goal"
-    title: string
-    status: "not_started" | "working_on_it" | "complete"
-    priority: int # 0-100
-    dynamic_priority: int # 0-100
-    notes: string, optional
-    due_date: string, optional # ISO date string
-    created_at: string # ISO date string
-    updated_at: string # ISO date string
-    category_id: string, optional
-    subcategory_id: string, optional
-    is_recurring: boolean, optional
-    frequency_in_days: number, optional
-    completion_history: Array of { completed_at: string, next_due_date: string }, optional
-    target_date: string, optional # ISO date string
-    associated_task_ids: Array<string>, optional # References to TaskDocuments that are part of this goal
-}
-```
-    
-    
-    
-#### Category Document Schema
-```
-CategoryDocument:
-    id: string;
-    user_id: string;
-    name: string;
-    color: string, optional
-    subcategories: Array of { id: string, name: string }, optional
-}
-```
-
-### Frontend Data Models
-
-#### Task Item
-```typescript
-interface TaskItem {
-    id: string;
-    userId: string;
-    type: "task" | "goal";
-    title: string;
-    status: "Not Started" | "Working on it" | "Complete";
-    priority: number; // Keep the numerical priority
-    displayPriority: "Very High" | "High" | "Medium" | "Low" | "Very Low"; // Add display priority
-    notes?: string;
-    dueDate?: string; // Formatted date string
-    createdAt: string; // Formatted date string
-    updatedAt: string; // Formatted date string
-    categoryId?: string;
-    subcategoryId?: string;
-    isRecurring?: boolean;
-    frequencyInDays?: number;
-    completionHistory?: Array<{
-        completedAt: string; // Formatted date string
-        nextDueDate: string; // Formatted date string
-    }>;
-    goalIds?: string[]; // Array of goal IDs
-}
-```
-
-#### Goal Item
-```typescript
-interface GoalItem {
-    id: string;
-    userId: string;
-    type: "goal";
-    title: string;
-    status: "Not Started" | "Working on it" | "Complete";
-    priority: number; // Keep the numerical priority
-    displayPriority: "Very High" | "High" | "Medium" | "Low" | "Very Low"; // Add display priority
-    notes?: string;
-    dueDate?: string; // Formatted date string
-    createdAt: string; // Formatted date string
-    updatedAt: string; // Formatted date string
-    categoryId?: string;
-    subcategoryId?: string;
-    isRecurring?: boolean;
-    frequencyInDays?: number;
-    completionHistory?: Array<{
-        completedAt: string; // Formatted date string
-        nextDueDate: string; // Formatted date string
-    }>;
-    targetDate?: string; // Formatted date string
-    taskIds?: string[]; // Array of task IDs
-}
-```
-    
-
-#### Category Item
-```typescript
-interface CategoryItem {
-    id: string;
-    userId: string;
-    name: string;
-    color?: string;
-    subcategories?: Array<{
-        id: string;
-        name: string;
-    }>;
-}
-```
-
-### Mapping Functions
-
-The backend handles all case conversions between snake_case (Python/backend) and camelCase (TypeScript/frontend). The frontend always works with camelCase, while the backend internally uses snake_case.
-
-#### Case Conversion Functions
-
-```python
-def to_snake_case(data: dict) -> dict:
-    """Convert a dictionary's keys from camelCase to snake_case recursively."""
-
-def to_camel_case(data: dict) -> dict:
-    """Convert a dictionary's keys from snake_case to camelCase recursively."""
-```
-
-These utility functions handle all case conversions between the frontend and backend:
-- `to_snake_case`: Converts incoming frontend payloads from camelCase to snake_case
-- `to_camel_case`: Converts outgoing backend responses from snake_case to camelCase
-
-Both functions handle nested dictionaries and arrays automatically.
-
-#### Usage in API Endpoints
-
-1. **Incoming Requests (Frontend → Backend)**
-   - All incoming request data is automatically converted from camelCase to snake_case using `to_snake_case()`
-   - Example: `userId` → `user_id`, `dueDate` → `due_date`
-
-2. **Database Operations**
-   - All data is stored in snake_case format in CosmosDB
-   - Internal backend operations use snake_case consistently
-
-3. **Outgoing Responses (Backend → Frontend)**
-   - All outgoing response data is converted from snake_case to camelCase using `to_camel_case()`
-   - Example: `user_id` → `userId`, `due_date` → `dueDate`
-
-4. **Special Handling**
-   - Status values are stored in snake_case internally (`not_started`, `working_on_it`, `complete`)
-   - Status values are converted to Title Case for frontend display ("Not Started", "Working on it", "Complete")
-   - Priority values maintain their format ("Very High", "High", etc.) but are mapped to numeric values internally
-
-This approach ensures:
-- Consistent data format in the database (snake_case)
-- Consistent data format in the frontend (camelCase)
-- Automatic conversion at API boundaries
-- No manual conversion needed in frontend code
-- Proper handling of nested objects and arrays
-
-### Data Transfer Contract
-
-The data models defined above, along with the case conversion functions, form the contract between the frontend and backend. The frontend can always expect camelCase keys in responses, and should always send camelCase keys in requests. The backend handles all necessary conversions.
-    
-    
-
-## 3. UI Constants
-
-### Priority Colors
-```css
-Very High: #E84B3C
-High: #F5B800
-Medium: #808080
-Low: #00DE94
-Very Low: #B0B0B0
-```
-    
-
-### Status Colors
-```css
-Not Started: #808080
-Working on it: #F5B800
-Complete: #00DE94
-```
-    
-
-## 4. API Endpoints
-
-### GET /api/get-master-list
-Retrieves the master list of items with optional filtering and sorting.
-
-Query Parameters:
-- `statuses`: Comma-separated list of status values to filter by
-- `sortBy`: Field to sort by (priority, dueDate, createdAt)
-- `sortDirection`: Sort direction (asc, desc)
-- `type`: Filter by item type (task, goal)
-
-### GET /api/items/{id}
-Retrieves a single item by its ID.
-
-### PATCH /api/batch-update
-Updates multiple items in a single request.
-
-Request Body:
-```typescript
-{
-    updates: Array<{
-        id: string;
-        [field: string]: any;
-    }>;
-}
-```
-    
-A maximum of 100 items can be updated in a single batch request. If one update in the batch fails, the entire batch will be rolled back.
-
-### POST /api/items
-Creates a new item.
-
-Request Body: Task or Goal document (without id, createdAt, updatedAt)
-
-### DELETE /api/items/{id}
-Deletes a single item by its ID.
-
-### POST /api/categories
-Creates a new category.
-
-### GET /api/categories
-Retrieves all categories.
-
-### GET /api/categories/{id}
-Retrieves a single category by its ID.
-
-### PATCH /api/categories/{id}
-Updates a category.
-
-### DELETE /api/categories/{id}
-Deletes a category.
-
-## 5. Error Handling
-
-API endpoints will return appropriate HTTP status codes (e.g., 400 for bad requests, 404 for not found, 500 for server errors). Error responses will be in JSON format with an error message.
-
-## 6. Authentication and Authorization
-
-Authentication will be handled using JWT (JSON Web Tokens). Authorization will be based on user roles and permissions.
-
-## 7. Filtering and Sorting
-
-Filters are applied using exact matches for status and type. Sorting is done based on the selected field and direction.
-
-## 8. Recurring Tasks
-
-When a recurring task is completed, a new instance of the task is created with a new due date based on the `frequencyInDays`. The `completionHistory` is updated with the completion date and the next due date.
-
-## 9. Milestones
-
-There is no limit on the number of milestones for a goal. Milestones have the same status values as tasks and goals.
-
-## 10. Other Considerations
-
-*   The `updatedAt` field is automatically updated on every change to the document.
-*   IDs are generated using UUIDs (version 4).
-*   Batch update limits and behavior
+    # --------------------------
+    # NEW HELPER METHOD:
+    # --------------------------
+    def get_item_by_id(self, item_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a single item by its ID, using cross-partition query.
+        Returns None if not found.
+        """
+        query = "SELECT * FROM c WHERE c.id = @id"
+        params = [{"name": "@id", "value": item_id}]
+        items = list(self.container.query_items(
+            query=query,
+            parameters=params,
+            enable_cross_partition_query=True
+        ))
+        if items:
+            return items[0]
+        return None
 
 --------------------------------------------------------------------------------
-<File: frontend/components.json>
-{
-  "$schema": "https://ui.shadcn.com/schema.json",
-  "style": "new-york",
-  "rsc": true,
-  "tsx": true,
-  "tailwind": {
-    "config": "tailwind.config.ts",
-    "css": "src/app/globals.css",
-    "baseColor": "neutral",
-    "cssVariables": true,
-    "prefix": ""
-  },
-  "aliases": {
-    "components": "@/components",
-    "utils": "@/lib/utils",
-    "ui": "@/components/ui",
-    "lib": "@/lib",
-    "hooks": "@/hooks"
-  },
-  "iconLibrary": "lucide"
-}
---------------------------------------------------------------------------------
-<File: frontend/next-env.d.ts>
-/// <reference types="next" />
-/// <reference types="next/image-types/global" />
-
-// NOTE: This file should not be edited
-// see https://nextjs.org/docs/app/api-reference/config/typescript for more information.
-
---------------------------------------------------------------------------------
-<File: frontend/next.config.ts>
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  /* config options here */
-  async redirects() {
-    return [
-      {
-        source: '/favicon.ico',
-        destination: '/icons/favicon.ico',
-        permanent: true,
-      },
-    ];
-  },
-};
-
-export default nextConfig;
-
---------------------------------------------------------------------------------
-<File: frontend/package.json>
-{
-  "name": "frontend",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
-  },
-  "dependencies": {
-    "@radix-ui/react-checkbox": "^1.1.3",
-    "@radix-ui/react-dialog": "^1.1.4",
-    "@radix-ui/react-label": "^2.1.1",
-    "@radix-ui/react-select": "^2.1.4",
-    "@radix-ui/react-slot": "^1.1.1",
-    "@radix-ui/react-switch": "^1.1.2",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "lucide-react": "^0.469.0",
-    "next": "15.1.3",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "tailwind-merge": "^2.6.0",
-    "tailwindcss-animate": "^1.0.7"
-  },
-  "devDependencies": {
-    "@eslint/eslintrc": "^3",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "15.1.3",
-    "postcss": "^8",
-    "tailwindcss": "^3.4.1",
-    "typescript": "^5"
-  }
-}
-
---------------------------------------------------------------------------------
-<File: frontend/src/app/globals.css>
+<File: app/globals.css>
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -1159,6 +589,11 @@ export default nextConfig;
   --text-tertiary: #999999;
 }
 
+/* Weekly Plan Page */
+.content-grid {
+  @apply grid md:grid-cols-3 gap-6;
+}
+
 @layer base {
   body {
     @apply bg-white relative min-h-screen;
@@ -1187,6 +622,50 @@ export default nextConfig;
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes checkmark {
+  0% {
+    transform: scale(0) rotate(45deg);
+    opacity: 0;
+  }
+  35% {
+    transform: scale(0) rotate(45deg);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.2) rotate(45deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(45deg);
+    opacity: 1;
+  }
+}
+
+@keyframes complete {
+  0% {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  30% {
+    transform: translateX(5px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(30px);
+    opacity: 0;
+  }
+}
+
+@layer utilities {
+  .animate-check {
+    animation: checkmark 0.4s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+  }
+
+  .animate-complete {
+    animation: complete 0.8s ease-out forwards;
   }
 }
 
@@ -1227,7 +706,7 @@ export default nextConfig;
   }
 
   .grid-header {
-    @apply grid grid-cols-[1fr_200px_135px_120px_120px_120px_40px] gap-4
+    @apply grid grid-cols-7 gap-4
            px-4 py-3 bg-gray-50 border-b border-gray-200;
   }
 
@@ -1244,7 +723,7 @@ export default nextConfig;
   }
 
   .grid-row {
-    @apply grid grid-cols-[1fr_200px_135px_120px_120px_120px_40px] gap-4
+    @apply grid grid-cols-7 gap-4
            px-4 py-3 hover:bg-gray-50 transition-colors
            items-center;
   }
@@ -1393,7 +872,7 @@ export default nextConfig;
 }
 
 --------------------------------------------------------------------------------
-<File: frontend/src/app/home/page.tsx>
+<File: app/home/page.tsx>
 "use client";
 
 
@@ -1436,12 +915,12 @@ export default function Home() {
 }
 
 --------------------------------------------------------------------------------
-<File: frontend/src/app/layout.tsx>
+<File: app/layout.tsx>
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "./sidebar/sidebar";
-import { cn } from "@/lib/utils";
+import { AppProvider } from "@/contexts/app-context";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -1457,27 +936,25 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={cn(inter.className, "bg-background")}>
-        <div className="relative min-h-screen">
-          <div className="fixed inset-y-0 z-50 hidden w-72 flex-col md:flex">
+      <body className={inter.className}>
+        <AppProvider>
+          <div className="flex h-screen">
             <Sidebar />
-          </div>
-          <main className="flex-1 md:pl-72">
-            <div className="container mx-auto p-8 pt-6">
+            <main className="flex-1 overflow-auto p-4">
               {children}
-            </div>
-          </main>
-        </div>
+            </main>
+          </div>
+        </AppProvider>
       </body>
     </html>
   );
 }
 
 --------------------------------------------------------------------------------
-<File: frontend/src/app/master-list/page.tsx>
+<File: app/master-list/page.tsx>
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { AddItemDialog } from "@/components/items/add-item-dialog";
 import { ItemFilters, FilterOptions } from "@/components/items/item-filters";
@@ -1499,26 +976,8 @@ import {
     CircleDot,
     Trash2
 } from "lucide-react";
-
-interface Item {
-    id: string;
-    title: string;
-    type: 'task' | 'goal';
-    priority: number;  // Raw number (0-100)
-    displayPriority: string;  // "Very High", "High", etc.
-    status: string;
-    notes?: string;
-    dueDate?: string;
-    createdAt: string;
-    categoryId?: string;
-    subcategoryId?: string;
-    isRecurring?: boolean;
-    frequencyInDays?: number;
-    completionHistory?: Array<{
-        completedAt: string;
-        nextDueDate: string;
-    }>;
-}
+import { useApp } from '@/contexts/app-context';
+import { TaskItem } from '@/types/items';
 
 interface EditableFieldProps {
     value: string;
@@ -1621,14 +1080,6 @@ const PRIORITY_MAP = {
     'Very Low': 10
 } as const;
 
-const REVERSE_PRIORITY_MAP = {
-    90: 'Very High',
-    70: 'High',
-    50: 'Medium',
-    30: 'Low',
-    10: 'Very Low'
-} as const;
-
 function StatusSelect({ value, onChange }: { value: string, onChange: (value: string) => void }) {
     return (
         <Select 
@@ -1654,10 +1105,7 @@ function PrioritySelect({ value, displayValue, onChange }: { value: number, disp
     return (
         <Select 
             value={displayValue} 
-            onValueChange={(newValue) => {
-                // When priority changes, send the display value to parent
-                onChange(newValue);
-            }}
+            onValueChange={onChange}
         >
             <SelectTrigger className={cn(
                 "select-trigger-no-border rounded-full px-3 py-1 text-sm border",
@@ -1677,11 +1125,10 @@ function PrioritySelect({ value, displayValue, onChange }: { value: number, disp
 }
 
 export default function MasterList() {
+    const { items, loading, error, updateItem, refreshItems } = useApp();
     const [open, setOpen] = useState(false);
-    const [items, setItems] = useState<Item[]>([]);
-    const [loading, setLoading] = useState(true);
     const [showFilters, setShowFilters] = useState(false);
-    const [pendingChanges, setPendingChanges] = useState<Record<string, Partial<Item>>>({});
+    const [pendingChanges, setPendingChanges] = useState<Record<string, Partial<TaskItem>>>({});
     const [filters, setFilters] = useState<FilterOptions>({
         statuses: ['Not Started', 'Working On It'],
         sortBy: 'priority',
@@ -1689,31 +1136,30 @@ export default function MasterList() {
         type: undefined
     });
 
-    const fetchItems = async () => {
-        try {
-            const queryParams = new URLSearchParams({
-                statuses: filters.statuses.join(','),
-                sortBy: filters.sortBy,
-                sortDirection: filters.sortDirection,
-                ...(filters.type && { type: filters.type })
-            });
-
-            const response = await fetch(`http://localhost:5000/api/get-master-list?${queryParams}`);
-            if (!response.ok) {
-                throw new Error('Failed to fetch items');
-            }
-            const data = await response.json();
-            setItems(data);
-        } catch (error) {
-            console.error('Error fetching items:', error);
-        } finally {
-            setLoading(false);
+    // Filter items based on current filters
+    const filteredItems = items.filter(item => {
+        if (filters.type && filters.type !== 'all' && item.type !== filters.type) {
+            return false;
         }
-    };
-
-    useEffect(() => {
-        fetchItems();
-    }, [filters]);
+        if (!filters.statuses.includes(item.status)) {
+            return false;
+        }
+        return true;
+    }).sort((a, b) => {
+        const direction = filters.sortDirection === 'asc' ? 1 : -1;
+        switch (filters.sortBy) {
+            case 'priority':
+                return (a.priority - b.priority) * direction;
+            case 'dueDate':
+                if (!a.dueDate) return 1;
+                if (!b.dueDate) return -1;
+                return (new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()) * direction;
+            case 'createdAt':
+                return (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * direction;
+            default:
+                return 0;
+        }
+    });
 
     const handleUpdateField = (id: string, field: string, value: any) => {
         setPendingChanges(prev => {
@@ -1737,30 +1183,14 @@ export default function MasterList() {
 
     const handleSaveChanges = async () => {
         try {
-            const updates = Object.entries(pendingChanges).map(([id, changes]) => ({
-                id,
-                ...changes
-            }));
-
-            const response = await fetch(`http://localhost:5000/api/batch-update`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ updates }),
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to update items');
-            }
-
-            // Update local state
-            setItems(items.map(item => {
-                const changes = pendingChanges[item.id];
-                return changes ? { ...item, ...changes } : item;
-            }));
-
-            // Clear pending changes
+            // Update each item with pending changes
+            await Promise.all(
+                Object.entries(pendingChanges).map(([id, changes]) =>
+                    updateItem({ id, ...changes } as TaskItem)
+                )
+            );
+            
+            // Clear pending changes after successful update
             setPendingChanges({});
         } catch (error) {
             console.error('Error updating items:', error);
@@ -1793,14 +1223,8 @@ export default function MasterList() {
                 throw new Error(error.error || 'Failed to delete item');
             }
 
-            // Remove item from local state
-            setItems(items.filter(item => item.id !== id));
-            // Remove from pending changes if present
-            setPendingChanges(prev => {
-                const newChanges = { ...prev };
-                delete newChanges[id];
-                return newChanges;
-            });
+            // Refresh items after deletion
+            await refreshItems();
         } catch (error) {
             console.error('Error deleting item:', error);
             alert(error instanceof Error ? error.message : 'Failed to delete item');
@@ -1848,12 +1272,16 @@ export default function MasterList() {
             <AddItemDialog 
                 open={open} 
                 onOpenChange={setOpen}
-                onItemAdded={fetchItems}
+                onItemAdded={refreshItems}
             />
 
             {loading ? (
                 <div className="flex items-center justify-center h-32">
                     <div className="text-muted-foreground">Loading...</div>
+                </div>
+            ) : error ? (
+                <div className="text-center py-8 text-red-500">
+                    {error}
                 </div>
             ) : (
                 <div className="grid-container">
@@ -1867,7 +1295,7 @@ export default function MasterList() {
                         <div className="grid-header-cell"></div>
                     </div>
                     <div className="grid-body">
-                        {items.map((item) => {
+                        {filteredItems.map((item) => {
                             const itemChanges = pendingChanges[item.id] || {};
                             const displayItem = { ...item, ...itemChanges };
 
@@ -1929,7 +1357,7 @@ export default function MasterList() {
     );
 } 
 --------------------------------------------------------------------------------
-<File: frontend/src/app/page.tsx>
+<File: app/page.tsx>
 import { redirect } from 'next/navigation';
 
 export default async function RootPage() {
@@ -1938,7 +1366,7 @@ export default async function RootPage() {
   return null;
 } 
 --------------------------------------------------------------------------------
-<File: frontend/src/app/sidebar/sidebar.tsx>
+<File: app/sidebar/sidebar.tsx>
 "use client";
 
 import Link from "next/link";
@@ -2000,29 +1428,189 @@ export function Sidebar() {
   );
 } 
 --------------------------------------------------------------------------------
-<File: frontend/src/app/weekly-plan/page.tsx>
-export default function WeeklyPlan() {
+<File: app/weekly-plan/page.tsx>
+'use client';
+
+import { useState } from 'react';
+import { format, startOfWeek, addDays, addWeeks, subWeeks, endOfWeek } from 'date-fns';
+import { TaskList } from '@/components/weekly-plan/task-list';
+import { CalendarDay } from '@/components/weekly-plan/calendar-day';
+import { TaskItem } from '@/types/items';
+import { Button } from '@/components/ui/button';
+import { useApp } from '@/contexts/app-context';
+
+export default function WeeklyPlanPage() {
+  const { items, loading, error, updateItem } = useApp();
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [weeklyTasks, setWeeklyTasks] = useState<{ [key: string]: TaskItem[] }>({});
+
+  // Get unscheduled tasks (Not Started or Working On It)
+  const unscheduledTasks = items
+    .filter((item): item is TaskItem => 
+      item.type === 'task' && 
+      (item.status === 'Not Started' || item.status === 'Working On It')
+    );
+
+  // Get the start and end of the week
+  const weekStart = startOfWeek(selectedDate);
+  const weekEnd = endOfWeek(selectedDate);
+
+  // Generate array of dates for the week
+  const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+  const handlePreviousWeek = () => {
+    setSelectedDate(subWeeks(selectedDate, 1));
+  };
+
+  const handleNextWeek = () => {
+    setSelectedDate(addWeeks(selectedDate, 1));
+  };
+
+  const handleTaskDrop = (date: Date, task: TaskItem, sourceDate?: string) => {
+    const targetDateKey = format(date, 'yyyy-MM-dd');
+
+    // If dropping in the same day, do nothing
+    if (sourceDate && sourceDate === targetDateKey) {
+      return;
+    }
+
+    // Remove task from source (either task list or another day)
+    if (sourceDate) {
+      // Moving from one day to another
+      setWeeklyTasks(prev => {
+        const newTasks = { ...prev };
+        newTasks[sourceDate] = prev[sourceDate]?.filter(t => t.id !== task.id) || [];
+        newTasks[targetDateKey] = [...(prev[targetDateKey] || []), task];
+        return newTasks;
+      });
+    } else {
+      // Moving from task list to calendar
+      setWeeklyTasks(prev => ({
+        ...prev,
+        [targetDateKey]: [...(prev[targetDateKey] || []), task],
+      }));
+    }
+  };
+
+  const handleTaskUnschedule = (task: TaskItem, sourceDate: string) => {
+    // Remove from calendar
+    setWeeklyTasks(prev => ({
+      ...prev,
+      [sourceDate]: prev[sourceDate]?.filter(t => t.id !== task.id) || [],
+    }));
+  };
+
+  const handleTaskComplete = async (task: TaskItem, dateKey: string) => {
+    try {
+      // Update UI immediately after animation completes
+      setTimeout(() => {
+        setWeeklyTasks(prev => ({
+          ...prev,
+          [dateKey]: prev[dateKey]?.filter(t => t.id !== task.id) || [],
+        }));
+      }, 800); // Match the animation duration
+
+      // Update backend and global state
+      await updateItem({
+        ...task,
+        status: 'Complete'
+      });
+    } catch (error) {
+      console.error('Error completing task:', error);
+      // Could add error handling/rollback here if needed
+    }
+  };
+
+  // Format the date range for the header
+  const dateRangeText = `${format(weekStart, 'LLL d')} - ${format(weekEnd, 'LLL d, yyyy')}`;
+
   return (
-    <div className="page-container">
-      <div className="page-header">
-        <h2>Weekly Plan</h2>
-        <div className="flex gap-2">
-          {/* Action buttons will go here */}
+    <div className="flex h-[calc(100vh-2rem)] overflow-hidden">
+      {/* Task List Section - Fixed width, full height */}
+      <div className="w-[280px] border-r border-gray-200 bg-white overflow-y-auto">
+        <div className="p-4">
+          <h2 className="text-lg font-semibold mb-4">Tasks</h2>
+          <TaskList 
+            tasks={unscheduledTasks}
+            loading={loading}
+            error={error}
+            onTaskReturn={handleTaskUnschedule}
+          />
         </div>
       </div>
-      <p className="subtitle">Plan and organize your week ahead</p>
-      <div className="content-grid">
-        {/* Weekly plan content will go here */}
+
+      {/* Calendar Section - Flexible width, full height */}
+      <div className="flex-1 overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="flex justify-between items-center p-6 border-b border-gray-200">
+          <h1 className="text-2xl font-semibold flex items-baseline">
+            Weekly Plan
+            <span className="text-base text-gray-500 ml-2 font-normal">
+              {dateRangeText}
+            </span>
+          </h1>
+          <div className="flex gap-4">
+            <Button onClick={handlePreviousWeek} variant="outline" size="sm">
+              Previous Week
+            </Button>
+            <Button onClick={handleNextWeek} variant="outline" size="sm">
+              Next Week
+            </Button>
+          </div>
+        </div>
+
+        {/* Calendar Grid */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="grid-container h-full">
+            {/* Calendar Header */}
+            <div className="grid grid-cols-7 border-b border-gray-200">
+              {weekDates.map((date) => (
+                <div
+                  key={date.toISOString()}
+                  className="p-4 text-center border-r last:border-r-0"
+                >
+                  <div className="font-medium text-gray-900">{format(date, 'EEE')}</div>
+                  <div className="text-sm text-gray-500">{format(date, 'd')}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Calendar Body */}
+            <div className="grid grid-cols-7 h-[calc(100%-57px)]">
+              {weekDates.map((date) => {
+                const dateKey = format(date, 'yyyy-MM-dd');
+                return (
+                  <div
+                    key={date.toISOString()}
+                    className="border-r last:border-r-0 h-full"
+                  >
+                    <CalendarDay
+                      date={date}
+                      tasks={weeklyTasks[dateKey] || []}
+                      onDrop={(task, sourceDate) => handleTaskDrop(date, task, sourceDate)}
+                      onTaskUnschedule={(task) => handleTaskUnschedule(task, dateKey)}
+                      onTaskComplete={(task) => handleTaskComplete(task, dateKey)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 } 
 --------------------------------------------------------------------------------
-<File: frontend/src/components/items/add-item-dialog.tsx>
+<File: components/items/add-item-dialog.tsx>
+'use client';
+
 import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useApp } from '@/contexts/app-context';
+import { TaskItem, GoalItem, Priority, Status, ItemType } from '@/types/items';
 
 interface AddItemDialogProps {
     open: boolean;
@@ -2030,70 +1618,74 @@ interface AddItemDialogProps {
     onItemAdded?: () => void;
 }
 
+const PRIORITY_MAP: Record<Priority, number> = {
+    'Very High': 90,
+    'High': 70,
+    'Medium': 50,
+    'Low': 30,
+    'Very Low': 10
+};
+
+type BaseFormData = {
+    userId: string;
+    title: string;
+    type: ItemType;
+    status: Status;
+    priority: number;
+    displayPriority: Priority;
+    notes: string;
+    categoryId: string;
+    subcategoryId: string;
+    completionHistory: Array<{ completedAt: string, nextDueDate: string }>;
+};
+
+type TaskFormData = BaseFormData & {
+    type: 'task';
+    dueDate: string;
+    isRecurring: boolean;
+    frequencyInDays: number;
+    goalIds: string[];
+};
+
+type GoalFormData = BaseFormData & {
+    type: 'goal';
+    targetDate: string;
+    taskIds: string[];
+};
+
+type FormData = TaskFormData | GoalFormData;
+
+const DEFAULT_FORM_DATA: TaskFormData = {
+    userId: 'test-user', // This should come from authentication
+    title: '',
+    type: 'task',
+    status: 'Not Started',
+    priority: PRIORITY_MAP['Medium'],
+    displayPriority: 'Medium',
+    notes: '',
+    dueDate: '',
+    isRecurring: false,
+    frequencyInDays: 0,
+    categoryId: '',
+    subcategoryId: '',
+    goalIds: [],
+    completionHistory: []
+};
+
 export function AddItemDialog({ open, onOpenChange, onItemAdded }: AddItemDialogProps) {
-    const [formData, setFormData] = useState({
-        title: '',
-        type: 'task',
-        status: 'Not Started',
-        priority: 'Medium',
-        notes: '',
-        dueDate: '',
-        isRecurring: false,
-        frequencyInDays: 0,
-        categoryId: '',
-        subcategoryId: '',
-        // Goal-specific fields
-        targetDate: '',
-        // Task-specific fields
-        goalIds: [] as string[],
-        // Arrays initialized empty
-        completionHistory: [] as Array<{ completedAt: string, nextDueDate: string }>,
-        associatedTaskIds: [] as string[]
-    });
+    const { createItem } = useApp();
+    const [formData, setFormData] = useState<FormData>(DEFAULT_FORM_DATA);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
         try {
-            const response = await fetch('http://localhost:5000/api/create-item', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    ...formData,
-                    userId: 'test-user', // This should come from authentication
-                }),
-            });
+            await createItem(formData);
 
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Failed to create item');
-            }
-
-            const data = await response.json();
-            console.log('Item created:', data);
+            // Close dialog and reset form
             onOpenChange(false);
+            setFormData(DEFAULT_FORM_DATA);
             onItemAdded?.();
-            
-            // Reset form
-            setFormData({
-                title: '',
-                type: 'task',
-                status: 'Not Started',
-                priority: 'Medium',
-                notes: '',
-                dueDate: '',
-                isRecurring: false,
-                frequencyInDays: 0,
-                categoryId: '',
-                subcategoryId: '',
-                targetDate: '',
-                goalIds: [],
-                completionHistory: [],
-                associatedTaskIds: []
-            });
-            
         } catch (error) {
             console.error('Error creating item:', error);
             alert(error instanceof Error ? error.message : 'Failed to create item');
@@ -2102,10 +1694,44 @@ export function AddItemDialog({ open, onOpenChange, onItemAdded }: AddItemDialog
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: type === 'number' ? Number(value) : value
-        }));
+        setFormData(prev => {
+            if (name === 'priority') {
+                return {
+                    ...prev,
+                    priority: PRIORITY_MAP[value as Priority],
+                    displayPriority: value as Priority
+                };
+            }
+            if (name === 'type') {
+                const newType = value as ItemType;
+                if (newType === 'task') {
+                    return {
+                        ...DEFAULT_FORM_DATA,
+                        title: prev.title,
+                        notes: prev.notes,
+                        priority: prev.priority,
+                        displayPriority: prev.displayPriority
+                    };
+                } else {
+                    return {
+                        ...prev,
+                        type: 'goal',
+                        targetDate: '',
+                        taskIds: []
+                    } as GoalFormData;
+                }
+            }
+            if (name === 'status') {
+                return {
+                    ...prev,
+                    status: value as Status
+                };
+            }
+            return {
+                ...prev,
+                [name]: type === 'number' ? Number(value) : value
+            };
+        });
     };
 
     return (
@@ -2140,7 +1766,7 @@ export function AddItemDialog({ open, onOpenChange, onItemAdded }: AddItemDialog
                         <label className="block text-sm font-medium mb-1">Priority</label>
                         <select
                             name="priority"
-                            value={formData.priority}
+                            value={formData.displayPriority}
                             onChange={handleInputChange}
                             className="flex h-9 w-full rounded-md border border-input bg-white px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
                         >
@@ -2178,7 +1804,7 @@ export function AddItemDialog({ open, onOpenChange, onItemAdded }: AddItemDialog
                                     onChange={(e) => setFormData(prev => ({
                                         ...prev,
                                         isRecurring: e.target.checked
-                                    }))}
+                                    } as TaskFormData))}
                                 />
                                 <label className="text-sm font-medium">Recurring Task</label>
                             </div>
@@ -2219,7 +1845,7 @@ export function AddItemDialog({ open, onOpenChange, onItemAdded }: AddItemDialog
     );
 } 
 --------------------------------------------------------------------------------
-<File: frontend/src/components/items/item-filters.tsx>
+<File: components/items/item-filters.tsx>
 import {
     Select,
     SelectContent,
@@ -2361,7 +1987,7 @@ export function ItemFilters({ filters, onFiltersChange }: ItemFiltersProps) {
     );
 } 
 --------------------------------------------------------------------------------
-<File: frontend/src/components/ui/badge.tsx>
+<File: components/ui/badge.tsx>
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 
@@ -2400,7 +2026,7 @@ function Badge({ className, variant, ...props }: BadgeProps) {
 export { Badge, badgeVariants }
 
 --------------------------------------------------------------------------------
-<File: frontend/src/components/ui/button.tsx>
+<File: components/ui/button.tsx>
 import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
@@ -2458,7 +2084,7 @@ Button.displayName = "Button"
 
 export { Button, buttonVariants } 
 --------------------------------------------------------------------------------
-<File: frontend/src/components/ui/card.tsx>
+<File: components/ui/card.tsx>
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
@@ -2537,7 +2163,7 @@ CardFooter.displayName = "CardFooter"
 export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }
 
 --------------------------------------------------------------------------------
-<File: frontend/src/components/ui/checkbox.tsx>
+<File: components/ui/checkbox.tsx>
 "use client"
 
 import * as React from "react"
@@ -2570,7 +2196,7 @@ Checkbox.displayName = CheckboxPrimitive.Root.displayName
 export { Checkbox }
 
 --------------------------------------------------------------------------------
-<File: frontend/src/components/ui/dialog.tsx>
+<File: components/ui/dialog.tsx>
 import * as React from "react"
 import * as DialogPrimitive from "@radix-ui/react-dialog"
 import { cn } from "@/lib/utils"
@@ -2686,7 +2312,7 @@ export {
   DialogDescription,
 } 
 --------------------------------------------------------------------------------
-<File: frontend/src/components/ui/input.tsx>
+<File: components/ui/input.tsx>
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
@@ -2712,7 +2338,7 @@ Input.displayName = "Input"
 
 export { Input } 
 --------------------------------------------------------------------------------
-<File: frontend/src/components/ui/label.tsx>
+<File: components/ui/label.tsx>
 "use client"
 
 import * as React from "react"
@@ -2741,7 +2367,7 @@ Label.displayName = LabelPrimitive.Root.displayName
 export { Label }
 
 --------------------------------------------------------------------------------
-<File: frontend/src/components/ui/select.tsx>
+<File: components/ui/select.tsx>
 "use client"
 
 import * as React from "react"
@@ -2903,7 +2529,7 @@ export {
 }
 
 --------------------------------------------------------------------------------
-<File: frontend/src/components/ui/switch.tsx>
+<File: components/ui/switch.tsx>
 "use client"
 
 import * as React from "react"
@@ -2935,7 +2561,356 @@ Switch.displayName = SwitchPrimitives.Root.displayName
 export { Switch }
 
 --------------------------------------------------------------------------------
-<File: frontend/src/lib/utils.ts>
+<File: components/weekly-plan/calendar-day.tsx>
+'use client';
+
+import { useState } from 'react';
+import { TaskItem } from '@/types/items';
+import { format } from 'date-fns';
+import { X, Check } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+interface CalendarDayProps {
+  date: Date;
+  tasks: TaskItem[];
+  onDrop: (task: TaskItem, sourceDate?: string) => void;
+  onTaskUnschedule: (task: TaskItem) => void;
+  onTaskComplete?: (task: TaskItem) => void;
+}
+
+export function CalendarDay({ 
+  date, 
+  tasks, 
+  onDrop, 
+  onTaskUnschedule,
+  onTaskComplete 
+}: CalendarDayProps) {
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [completingTasks, setCompletingTasks] = useState<Set<string>>(new Set());
+  const dateKey = format(date, 'yyyy-MM-dd');
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    
+    try {
+      const taskData = e.dataTransfer.getData('text/plain');
+      const task = JSON.parse(taskData) as TaskItem;
+      const sourceDate = e.dataTransfer.getData('source-date');
+      onDrop(task, sourceDate || undefined);
+    } catch (error) {
+      console.error('Error handling drop:', error);
+    }
+  };
+
+  const handleTaskComplete = (task: TaskItem) => {
+    if (!onTaskComplete || completingTasks.has(task.id)) return;
+    
+    // Add task to completing set
+    setCompletingTasks(prev => new Set(prev).add(task.id));
+
+    // Wait for animation to complete before calling parent handler
+    setTimeout(() => {
+      onTaskComplete(task);
+    }, 800);
+  };
+
+  return (
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`h-full p-2 space-y-2 transition-colors ${
+        isDragOver ? 'bg-blue-50' : ''
+      }`}
+    >
+      {tasks.length === 0 && (
+        <div className="h-full flex items-start justify-center pt-8 text-gray-400 text-sm">
+          Drop tasks here
+        </div>
+      )}
+      {tasks.map((task) => (
+        <div
+          key={task.id}
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData('text/plain', JSON.stringify(task));
+            e.dataTransfer.setData('source-date', dateKey);
+          }}
+          className={cn(
+            "group p-2 bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-all relative cursor-move hover:border-gray-300",
+            completingTasks.has(task.id) && "animate-complete"
+          )}
+        >
+          <div className="absolute left-2 top-1/2 -translate-y-1/2">
+            <button
+              onClick={() => handleTaskComplete(task)}
+              className={cn(
+                "w-5 h-5 rounded border-2 border-gray-300 hover:border-green-500 transition-colors flex items-center justify-center",
+                completingTasks.has(task.id) && "bg-green-500 border-green-500"
+              )}
+            >
+              {completingTasks.has(task.id) && (
+                <Check className="h-3 w-3 text-white animate-check" />
+              )}
+            </button>
+          </div>
+          <button
+            onClick={() => onTaskUnschedule(task)}
+            className="absolute top-1 right-1 p-1 rounded-full opacity-0 group-hover:opacity-100 hover:bg-gray-100 transition-opacity"
+            title="Remove from calendar"
+          >
+            <X className="h-3 w-3 text-gray-500" />
+          </button>
+          <div className="pl-7 pr-6">
+            <h4 className={cn(
+              "text-sm font-medium text-gray-900",
+              completingTasks.has(task.id) && "line-through text-gray-500"
+            )}>
+              {task.title}
+            </h4>
+            <div className="mt-1 flex items-center gap-2">
+              <span className={`priority-badge ${task.displayPriority.toLowerCase().replace(' ', '-')}`}>
+                {task.displayPriority}
+              </span>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+} 
+--------------------------------------------------------------------------------
+<File: components/weekly-plan/task-list.tsx>
+'use client';
+
+import { useState } from 'react';
+import { TaskItem } from '@/types/items';
+
+interface TaskListProps {
+  tasks: TaskItem[];
+  loading: boolean;
+  error: string | null;
+  onTaskReturn?: (task: TaskItem, sourceDate: string) => void;
+}
+
+export function TaskList({ tasks, loading, error, onTaskReturn }: TaskListProps) {
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+
+    try {
+      const taskData = e.dataTransfer.getData('text/plain');
+      const sourceDate = e.dataTransfer.getData('source-date');
+      if (sourceDate && onTaskReturn) {
+        const task = JSON.parse(taskData) as TaskItem;
+        onTaskReturn(task, sourceDate);
+      }
+    } catch (error) {
+      console.error('Error handling drop:', error);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-40">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-8 text-red-500">
+        {error}
+      </div>
+    );
+  }
+
+  return (
+    <div 
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`space-y-2 min-h-[200px] transition-colors rounded-lg ${
+        isDragOver ? 'bg-blue-50' : ''
+      }`}
+    >
+      {tasks.map((task) => (
+        <div
+          key={task.id}
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.setData('text/plain', JSON.stringify(task));
+          }}
+          className="p-3 bg-white rounded-lg border border-gray-200 cursor-move hover:border-gray-300 transition-colors"
+        >
+          <h3 className="font-medium text-sm">{task.title}</h3>
+          <div className="mt-1 flex items-center gap-2">
+            <span className={`priority-badge ${task.displayPriority.toLowerCase().replace(' ', '-')}`}>
+              {task.displayPriority}
+            </span>
+            <span className={`status-badge ${task.status.toLowerCase().replace(' ', '-')}`}>
+              {task.status}
+            </span>
+          </div>
+        </div>
+      ))}
+      {tasks.length === 0 && (
+        <div className="text-center py-8 text-gray-500">
+          {isDragOver ? 'Drop to unschedule task' : 'No tasks available'}
+        </div>
+      )}
+    </div>
+  );
+} 
+--------------------------------------------------------------------------------
+<File: contexts/app-context.tsx>
+'use client';
+
+import { createContext, useContext, useEffect, useState } from 'react';
+import { TaskItem, GoalItem } from '@/types/items';
+
+type Item = TaskItem | GoalItem;
+
+interface AppContextType {
+  items: Item[];
+  loading: boolean;
+  error: string | null;
+  refreshItems: () => Promise<void>;
+  updateItem: (updatedItem: Item) => Promise<void>;
+  createItem: (newItem: Omit<Item, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+}
+
+const AppContext = createContext<AppContextType | undefined>(undefined);
+
+export function AppProvider({ children }: { children: React.ReactNode }) {
+  const [items, setItems] = useState<Item[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchItems = async () => {
+    try {
+      setError(null);
+      setLoading(true);
+      const response = await fetch('http://localhost:5000/api/get-master-list');
+      if (!response.ok) {
+        throw new Error('Failed to fetch items');
+      }
+      const data = await response.json();
+      setItems(data);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to fetch items');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial fetch on mount
+  useEffect(() => {
+    fetchItems();
+  }, []);
+
+  const refreshItems = async () => {
+    await fetchItems();
+  };
+
+  const updateItem = async (updatedItem: Item) => {
+    try {
+      const response = await fetch('http://localhost:5000/api/batch-update', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          updates: [updatedItem],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update item');
+      }
+
+      // Update local state
+      setItems(prevItems =>
+        prevItems.map(item =>
+          item.id === updatedItem.id ? updatedItem : item
+        )
+      );
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to update item');
+      throw error;
+    }
+  };
+
+  const createItem = async (newItem: Omit<Item, 'id' | 'createdAt' | 'updatedAt'>) => {
+    try {
+      const response = await fetch('http://localhost:5000/api/items', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newItem),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create item');
+      }
+
+      // Refresh items to get the new item
+      await refreshItems();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to create item');
+      throw error;
+    }
+  };
+
+  return (
+    <AppContext.Provider
+      value={{
+        items,
+        loading,
+        error,
+        refreshItems,
+        updateItem,
+        createItem,
+      }}
+    >
+      {children}
+    </AppContext.Provider>
+  );
+}
+
+export function useApp() {
+  const context = useContext(AppContext);
+  if (context === undefined) {
+    throw new Error('useApp must be used within an AppProvider');
+  }
+  return context;
+} 
+--------------------------------------------------------------------------------
+<File: lib/utils.ts>
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
@@ -2944,172 +2919,45 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 --------------------------------------------------------------------------------
-<File: frontend/tailwind.config.ts>
-/** @type {import('tailwindcss').Config} */
-module.exports = {
-  content: [
-    './pages/**/*.{ts,tsx}',
-    './components/**/*.{ts,tsx}',
-    './app/**/*.{ts,tsx}',
-    './src/**/*.{ts,tsx}',
-  ],
-  safelist: [
-    'from-blue-500',
-    'from-blue-600',
-    'from-blue-700',
-    'from-blue-800',
-    'from-blue-900',
-    'to-gray-500',
-    'to-gray-600',
-    'to-gray-700',
-    'to-gray-800',
-    'to-gray-900',
-  ],
-  theme: {
-    extend: {
-      colors: {
-        background: 'hsl(var(--background))',
-        foreground: 'hsl(var(--foreground))',
-        sidebar: {
-          DEFAULT: 'hsl(var(--sidebar))',
-          foreground: 'hsl(var(--sidebar-foreground))',
-        },
-        primary: {
-          DEFAULT: 'hsl(var(--primary))',
-          foreground: 'hsl(var(--primary-foreground))',
-        },
-        muted: {
-          DEFAULT: 'hsl(var(--muted))',
-          foreground: 'hsl(var(--muted-foreground))',
-        },
-        card: {
-          DEFAULT: 'hsl(var(--card))',
-          foreground: 'hsl(var(--card-foreground))',
-        },
-      },
-    },
-  },
-  plugins: [],
+<File: types/items.ts>
+export type Status = 'Not Started' | 'Working On It' | 'Complete';
+export type Priority = 'Very High' | 'High' | 'Medium' | 'Low' | 'Very Low';
+export type ItemType = 'task' | 'goal';
+
+interface CompletionHistoryEntry {
+  completedAt: string;
+  nextDueDate: string;
 }
 
---------------------------------------------------------------------------------
-<File: frontend/tsconfig.json>
-{
-  "compilerOptions": {
-    "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
-    "paths": {
-      "@/*": ["./src/*"]
-    }
-  },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+export interface BaseItem {
+  id: string;
+  userId: string;
+  type: ItemType;
+  title: string;
+  status: Status;
+  priority: number;
+  displayPriority: Priority;
+  notes?: string;
+  dueDate?: string;
+  createdAt: string;
+  updatedAt: string;
+  categoryId?: string;
+  subcategoryId?: string;
+  isRecurring?: boolean;
+  frequencyInDays?: number;
+  completionHistory?: CompletionHistoryEntry[];
 }
 
---------------------------------------------------------------------------------
-<File: README.md>
-# life_manager
+export interface TaskItem extends BaseItem {
+  type: 'task';
+  goalIds?: string[];
+}
 
-This is a personal project to help me manage my life. The main goal is to help me manage my tasks and goals and stay organized and productive. The main page will be blank for now. There will be a sidebar to navigate to the different pages.
-
-The task page will be the second page. It will have a main grid area for tasks. There will be two types of tasks: 
-
-- Recurring tasks: These are tasks that happen on a regular basis. For example, clean shower, etc. 
-- One-time tasks: These are tasks that happen once and are not repeated. For example, sell my bike. 
-
-We should have a data model in cosmos DB. When we mark a recurring task completed, it should be marked as completed for the current date and then it should show back up once the elapsed time since last completion is greater than the frequency of the task. 
-
-
-.
-├── backend
-│   ├── app.py
-│   ├── cosmos_db.py
-│   └── requirements.txt
-└── frontend
-    ├── .gitignore
-    ├── components.json
-    ├── eslint.config.mjs
-    ├── next.config.ts
-    ├── package-lock.json
-    ├── package.json
-    ├── postcss.config.mjs
-    ├── public
-    │   ├── branding
-    │   │   ├── next.svg
-    │   │   └── vercel.svg
-    │   ├── icons
-    │   │   ├── favicon.ico
-    │   │   └── site.webmanifest
-    │   └── images
-    │       ├── file.svg
-    │       ├── globe.svg
-    │       └── window.svg
-    ├── src
-    │   ├── app
-    │   │   ├── globals.css
-    │   │   ├── home
-    │   │   │   └── page.tsx
-    │   │   ├── layout.tsx
-    │   │   ├── master-list
-    │   │   │   └── page.tsx
-    │   │   ├── page.tsx
-    │   │   ├── sidebar
-    │   │   │   └── sidebar.tsx
-    │   │   └── weekly-plan
-    │   │       └── page.tsx
-    │   └── components
-    │       ├── items
-    │       │   ├── add-item-dialog.tsx
-    │       │   └── item-filters.tsx
-    │       └── ui
-    │           ├── badge.tsx
-    │           ├── button.tsx
-    │           ├── card.tsx
-    │           ├── checkbox.tsx
-    │           ├── dialog.tsx
-    │           ├── input.tsx
-    │           ├── label.tsx
-    │           ├── select.tsx
-    │           └── switch.tsx
-    ├── tailwind.config.ts
-    └── tsconfig.json
-
-
-## Tech Stack
-
-### Backend
-
-- Python
-- Flask
-
-### Frontend
-
-- React
-- NextJS
-- TailwindCSS Styling
-- Shadcn Components
-- Lucide Icons
-
-### Database
-
-- CosmosDB
-
+export interface GoalItem extends BaseItem {
+  type: 'goal';
+  targetDate?: string;
+  taskIds?: string[];
+} 
 --------------------------------------------------------------------------------
 
 <end codebase> 

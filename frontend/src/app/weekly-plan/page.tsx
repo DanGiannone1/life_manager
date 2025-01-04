@@ -1,18 +1,24 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { format, startOfWeek, addDays, addWeeks, subWeeks, endOfWeek } from 'date-fns';
 import { TaskList } from '@/components/weekly-plan/task-list';
 import { CalendarDay } from '@/components/weekly-plan/calendar-day';
 import { TaskItem } from '@/types/items';
 import { Button } from '@/components/ui/button';
+import { useApp } from '@/contexts/app-context';
 
 export default function WeeklyPlanPage() {
+  const { items, loading, error, updateItem } = useApp();
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [unscheduledTasks, setUnscheduledTasks] = useState<TaskItem[]>([]);
   const [weeklyTasks, setWeeklyTasks] = useState<{ [key: string]: TaskItem[] }>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // Get unscheduled tasks (Not Started or Working On It)
+  const unscheduledTasks = items
+    .filter((item): item is TaskItem => 
+      item.type === 'task' && 
+      (item.status === 'Not Started' || item.status === 'Working On It')
+    );
 
   // Get the start and end of the week
   const weekStart = startOfWeek(selectedDate);
@@ -20,29 +26,6 @@ export default function WeeklyPlanPage() {
 
   // Generate array of dates for the week
   const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-
-  // Fetch initial unscheduled tasks
-  useEffect(() => {
-    const fetchTasks = async () => {
-      try {
-        setError(null);
-        const response = await fetch('http://localhost:5000/api/get-master-list?type=task&statuses=Not Started,Working On It');
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => null);
-          throw new Error(errorData?.error || 'Failed to fetch tasks');
-        }
-        const data = await response.json();
-        setUnscheduledTasks(data);
-      } catch (error) {
-        console.error('Error fetching tasks:', error);
-        setError(error instanceof Error ? error.message : 'Failed to fetch tasks');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchTasks();
-  }, []);
 
   const handlePreviousWeek = () => {
     setSelectedDate(subWeeks(selectedDate, 1));
@@ -71,7 +54,6 @@ export default function WeeklyPlanPage() {
       });
     } else {
       // Moving from task list to calendar
-      setUnscheduledTasks(prev => prev.filter(t => t.id !== task.id));
       setWeeklyTasks(prev => ({
         ...prev,
         [targetDateKey]: [...(prev[targetDateKey] || []), task],
@@ -85,37 +67,23 @@ export default function WeeklyPlanPage() {
       ...prev,
       [sourceDate]: prev[sourceDate]?.filter(t => t.id !== task.id) || [],
     }));
-    // Add back to task list
-    setUnscheduledTasks(prev => [...prev, task]);
   };
 
   const handleTaskComplete = async (task: TaskItem, dateKey: string) => {
-    // Update UI immediately after animation completes
-    setTimeout(() => {
-      setWeeklyTasks(prev => ({
-        ...prev,
-        [dateKey]: prev[dateKey]?.filter(t => t.id !== task.id) || [],
-      }));
-    }, 800); // Match the animation duration
-
-    // Update backend asynchronously
     try {
-      const response = await fetch(`http://localhost:5000/api/batch-update`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          updates: [{
-            id: task.id,
-            status: 'Complete'
-          }]
-        }),
-      });
+      // Update UI immediately after animation completes
+      setTimeout(() => {
+        setWeeklyTasks(prev => ({
+          ...prev,
+          [dateKey]: prev[dateKey]?.filter(t => t.id !== task.id) || [],
+        }));
+      }, 800); // Match the animation duration
 
-      if (!response.ok) {
-        throw new Error('Failed to update task status');
-      }
+      // Update backend and global state
+      await updateItem({
+        ...task,
+        status: 'Complete'
+      });
     } catch (error) {
       console.error('Error completing task:', error);
       // Could add error handling/rollback here if needed

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { AddItemDialog } from "@/components/items/add-item-dialog";
 import { ItemFilters, FilterOptions } from "@/components/items/item-filters";
@@ -22,26 +22,8 @@ import {
     CircleDot,
     Trash2
 } from "lucide-react";
-
-interface Item {
-    id: string;
-    title: string;
-    type: 'task' | 'goal';
-    priority: number;  // Raw number (0-100)
-    displayPriority: string;  // "Very High", "High", etc.
-    status: string;
-    notes?: string;
-    dueDate?: string;
-    createdAt: string;
-    categoryId?: string;
-    subcategoryId?: string;
-    isRecurring?: boolean;
-    frequencyInDays?: number;
-    completionHistory?: Array<{
-        completedAt: string;
-        nextDueDate: string;
-    }>;
-}
+import { useApp } from '@/contexts/app-context';
+import { TaskItem } from '@/types/items';
 
 interface EditableFieldProps {
     value: string;
@@ -144,14 +126,6 @@ const PRIORITY_MAP = {
     'Very Low': 10
 } as const;
 
-const REVERSE_PRIORITY_MAP = {
-    90: 'Very High',
-    70: 'High',
-    50: 'Medium',
-    30: 'Low',
-    10: 'Very Low'
-} as const;
-
 function StatusSelect({ value, onChange }: { value: string, onChange: (value: string) => void }) {
     return (
         <Select 
@@ -177,10 +151,7 @@ function PrioritySelect({ value, displayValue, onChange }: { value: number, disp
     return (
         <Select 
             value={displayValue} 
-            onValueChange={(newValue) => {
-                // When priority changes, send the display value to parent
-                onChange(newValue);
-            }}
+            onValueChange={onChange}
         >
             <SelectTrigger className={cn(
                 "select-trigger-no-border rounded-full px-3 py-1 text-sm border",
@@ -200,11 +171,10 @@ function PrioritySelect({ value, displayValue, onChange }: { value: number, disp
 }
 
 export default function MasterList() {
+    const { items, loading, error, updateItem, refreshItems } = useApp();
     const [open, setOpen] = useState(false);
-    const [items, setItems] = useState<Item[]>([]);
-    const [loading, setLoading] = useState(true);
     const [showFilters, setShowFilters] = useState(false);
-    const [pendingChanges, setPendingChanges] = useState<Record<string, Partial<Item>>>({});
+    const [pendingChanges, setPendingChanges] = useState<Record<string, Partial<TaskItem>>>({});
     const [filters, setFilters] = useState<FilterOptions>({
         statuses: ['Not Started', 'Working On It'],
         sortBy: 'priority',
@@ -212,31 +182,30 @@ export default function MasterList() {
         type: undefined
     });
 
-    const fetchItems = async () => {
-        try {
-            const queryParams = new URLSearchParams({
-                statuses: filters.statuses.join(','),
-                sortBy: filters.sortBy,
-                sortDirection: filters.sortDirection,
-                ...(filters.type && { type: filters.type })
-            });
-
-            const response = await fetch(`http://localhost:5000/api/get-master-list?${queryParams}`);
-            if (!response.ok) {
-                throw new Error('Failed to fetch items');
-            }
-            const data = await response.json();
-            setItems(data);
-        } catch (error) {
-            console.error('Error fetching items:', error);
-        } finally {
-            setLoading(false);
+    // Filter items based on current filters
+    const filteredItems = items.filter(item => {
+        if (filters.type && filters.type !== 'all' && item.type !== filters.type) {
+            return false;
         }
-    };
-
-    useEffect(() => {
-        fetchItems();
-    }, [filters]);
+        if (!filters.statuses.includes(item.status)) {
+            return false;
+        }
+        return true;
+    }).sort((a, b) => {
+        const direction = filters.sortDirection === 'asc' ? 1 : -1;
+        switch (filters.sortBy) {
+            case 'priority':
+                return (a.priority - b.priority) * direction;
+            case 'dueDate':
+                if (!a.dueDate) return 1;
+                if (!b.dueDate) return -1;
+                return (new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()) * direction;
+            case 'createdAt':
+                return (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * direction;
+            default:
+                return 0;
+        }
+    });
 
     const handleUpdateField = (id: string, field: string, value: any) => {
         setPendingChanges(prev => {
@@ -260,30 +229,14 @@ export default function MasterList() {
 
     const handleSaveChanges = async () => {
         try {
-            const updates = Object.entries(pendingChanges).map(([id, changes]) => ({
-                id,
-                ...changes
-            }));
-
-            const response = await fetch(`http://localhost:5000/api/batch-update`, {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ updates }),
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to update items');
-            }
-
-            // Update local state
-            setItems(items.map(item => {
-                const changes = pendingChanges[item.id];
-                return changes ? { ...item, ...changes } : item;
-            }));
-
-            // Clear pending changes
+            // Update each item with pending changes
+            await Promise.all(
+                Object.entries(pendingChanges).map(([id, changes]) =>
+                    updateItem({ id, ...changes } as TaskItem)
+                )
+            );
+            
+            // Clear pending changes after successful update
             setPendingChanges({});
         } catch (error) {
             console.error('Error updating items:', error);
@@ -316,14 +269,8 @@ export default function MasterList() {
                 throw new Error(error.error || 'Failed to delete item');
             }
 
-            // Remove item from local state
-            setItems(items.filter(item => item.id !== id));
-            // Remove from pending changes if present
-            setPendingChanges(prev => {
-                const newChanges = { ...prev };
-                delete newChanges[id];
-                return newChanges;
-            });
+            // Refresh items after deletion
+            await refreshItems();
         } catch (error) {
             console.error('Error deleting item:', error);
             alert(error instanceof Error ? error.message : 'Failed to delete item');
@@ -371,12 +318,16 @@ export default function MasterList() {
             <AddItemDialog 
                 open={open} 
                 onOpenChange={setOpen}
-                onItemAdded={fetchItems}
+                onItemAdded={refreshItems}
             />
 
             {loading ? (
                 <div className="flex items-center justify-center h-32">
                     <div className="text-muted-foreground">Loading...</div>
+                </div>
+            ) : error ? (
+                <div className="text-center py-8 text-red-500">
+                    {error}
                 </div>
             ) : (
                 <div className="grid-container">
@@ -390,7 +341,7 @@ export default function MasterList() {
                         <div className="grid-header-cell"></div>
                     </div>
                     <div className="grid-body">
-                        {items.map((item) => {
+                        {filteredItems.map((item) => {
                             const itemChanges = pendingChanges[item.id] || {};
                             const displayItem = { ...item, ...itemChanges };
 

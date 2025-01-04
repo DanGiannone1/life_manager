@@ -4,12 +4,18 @@
 
 This document outlines the design for the Life Manager application, including data models, API endpoints, and other key considerations.
 
-This is a personal project to help me manage my life. The main goal is to help me manage my tasks and goals and stay organized and productive. 
+This app helps the user manage tasks, goals, planning, and productivity. 
 
 
-## Main Features & Components
+## 2. System Architecture
 
-1. Home Page - blank for now.
+### 2.1 Technology Stack
+
+Frontend: React, NextJS, TailwindCSS, Shadcn Components
+Backend: Python, Flask
+Database: CosmosDB
+
+
 
 ## Frontend Architecture
 
@@ -53,6 +59,14 @@ graph TD
     %% API styling
     style API fill:#50C878,stroke:#333,stroke-width:2px,color:white
 ```
+
+
+
+
+
+
+
+
 
 ## 2. Weekly Plan Page
 

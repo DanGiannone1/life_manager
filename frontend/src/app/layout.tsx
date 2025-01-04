@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "./sidebar/sidebar";
-import { cn } from "@/lib/utils";
+import { AppProvider } from "@/contexts/app-context";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -18,17 +18,15 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={cn(inter.className, "bg-background")}>
-        <div className="relative min-h-screen">
-          <div className="fixed inset-y-0 z-50 hidden w-72 flex-col md:flex">
+      <body className={inter.className}>
+        <AppProvider>
+          <div className="flex h-screen">
             <Sidebar />
-          </div>
-          <main className="flex-1 md:pl-72">
-            <div className="container mx-auto p-8 pt-6">
+            <main className="flex-1 overflow-auto p-4">
               {children}
-            </div>
-          </main>
-        </div>
+            </main>
+          </div>
+        </AppProvider>
       </body>
     </html>
   );
