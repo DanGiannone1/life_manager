@@ -111,7 +111,19 @@ Used only for temporary UI states within components:
 
 ```mermaid
 flowchart LR
-    subgraph UserFlow[2. User Interactions]
+    direction LR
+    
+    subgraph "1. Initial Load"
+        direction LR
+        DB1[(CosmosDB)]
+        API1[(/api/v1/user-data)]
+        Store1[(Redux Store)]
+        UI1[Application UI]
+        DB1 --> API1 --> Store1 --> UI1
+    end
+
+    subgraph "2. User Interactions"
+        direction LR
         Actions[User Actions]
         Store2[(Redux Store)]
         UI2[Application UI]
@@ -120,14 +132,6 @@ flowchart LR
         Actions --> Store2
         Store2 --> UI2
         Store2 -.->|Debounced Sync| API2 --> DB2
-    end
-
-    subgraph InitialLoad[1. Initial Load]
-        DB1[(CosmosDB)]
-        API1[(/api/v1/user-data)]
-        Store1[(Redux Store)]
-        UI1[Application UI]
-        DB1 --> API1 --> Store1 --> UI1
     end
 
     classDef storeNode fill:#FF8C00,stroke:#333,stroke-width:2px,color:white
@@ -142,7 +146,7 @@ flowchart LR
     class Actions actionNode
     class DB1,DB2 dbNode
     class UI1,UI2 uiNode
-    class InitialLoad,UserFlow groupNode
+    class "1. Initial Load","2. User Interactions" groupNode
 ```
 
 
@@ -1108,10 +1112,10 @@ const TaskCard = memo(({ task, ...props }: TaskCardProps) => {
             task.id,
             { 
                 status: newStatus,
-                statusHistory: [...task.statusHistory, {
-                    status: newStatus,
-                    changedAt: new Date().toISOString()
-                }]
+                statusHistory: [
+                        ...task.statusHistory,
+                        { status: newStatus, changedAt: new Date().toISOString() }
+                    ]
             }
         );
     }, [task.id, task.statusHistory]);
