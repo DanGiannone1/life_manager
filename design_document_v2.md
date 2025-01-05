@@ -109,6 +109,7 @@ Used only for temporary UI states within components:
 
 ### Data Flow & Sync Strategy
 
+#### User Login / Initial Load
 ```mermaid
 flowchart LR
     DB[(CosmosDB)] --> 
@@ -127,13 +128,13 @@ flowchart LR
     class UI uiNode
 ```
 
+#### User Interactions
 ```mermaid
 flowchart LR
-    Actions[User Actions] --> 
-    Store[(Redux Store)] --> 
+    Actions[User Actions] -->
+    Store[(Redux Store)] -->
     UI[Application UI]
-    Store -.->|Debounced Sync| 
-    API[(/api/v1/user-data)] --> 
+    Store -.->|Debounced Sync| API[(/api/v1/user-data)] -->
     DB[(CosmosDB)]
 
     classDef storeNode fill:#FF8C00,stroke:#333,stroke-width:2px,color:white
