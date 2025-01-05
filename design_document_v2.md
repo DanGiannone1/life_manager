@@ -111,44 +111,43 @@ Used only for temporary UI states within components:
 
 ```mermaid
 flowchart LR
-    direction LR
-    
-    subgraph "1. Initial Load"
-        direction LR
-        DB1[(CosmosDB)]
-        API1[(/api/v1/user-data)]
-        Store1[(Redux Store)]
-        UI1[Application UI]
-        DB1 --> API1 --> Store1 --> UI1
-    end
+    DB[(CosmosDB)] --> 
+    API[(/api/v1/user-data)] --> 
+    Store[(Redux Store)] --> 
+    UI[Application UI]
 
-    subgraph "2. User Interactions"
-        direction LR
-        Actions[User Actions]
-        Store2[(Redux Store)]
-        UI2[Application UI]
-        API2[(/api/v1/user-data)]
-        DB2[(CosmosDB)]
-        Actions --> Store2
-        Store2 --> UI2
-        Store2 -.->|Debounced Sync| API2 --> DB2
-    end
+    classDef storeNode fill:#FF8C00,stroke:#333,stroke-width:2px,color:white
+    classDef apiNode fill:#50C878,stroke:#333,stroke-width:2px,color:white
+    classDef dbNode fill:#FF69B4,stroke:#333,stroke-width:2px,color:white
+    classDef uiNode fill:#9370DB,stroke:#333,stroke-width:2px,color:white
+
+    class Store storeNode
+    class API apiNode
+    class DB dbNode
+    class UI uiNode
+```
+
+```mermaid
+flowchart LR
+    Actions[User Actions] --> 
+    Store[(Redux Store)] --> 
+    UI[Application UI]
+    Store -.->|Debounced Sync| 
+    API[(/api/v1/user-data)] --> 
+    DB[(CosmosDB)]
 
     classDef storeNode fill:#FF8C00,stroke:#333,stroke-width:2px,color:white
     classDef apiNode fill:#50C878,stroke:#333,stroke-width:2px,color:white
     classDef actionNode fill:#4169E1,stroke:#333,stroke-width:1px,color:white
     classDef dbNode fill:#FF69B4,stroke:#333,stroke-width:2px,color:white
     classDef uiNode fill:#9370DB,stroke:#333,stroke-width:2px,color:white
-    classDef groupNode fill:none,stroke:#666,stroke-width:2px,color:white
 
-    class Store1,Store2 storeNode
-    class API1,API2 apiNode
+    class Store storeNode
+    class API apiNode
     class Actions actionNode
-    class DB1,DB2 dbNode
-    class UI1,UI2 uiNode
-    class "1. Initial Load","2. User Interactions" groupNode
+    class DB dbNode
+    class UI uiNode
 ```
-
 
 #### 1. Initial Load
 ```typescript
