@@ -17,6 +17,9 @@
      - [Dashboard Interface](#dashboard-interface)
      - [Display Mappings](#display-mappings)
    - [Backend Data Models (CosmosDB)](#backend-data-models-cosmosdb)
+     - [Container Strategy & Querying](#container-strategy--querying)
+     - [Indexing Strategy](#indexing-strategy)
+     - [Document Models](#document-models)
 
 3. [APIs](#apis)
    - [Base URL](#base-url)
@@ -25,6 +28,7 @@
    - [Error Codes](#error-codes)
    - [Core Endpoints](#core-endpoints)
    - [Rate Limiting](#rate-limiting)
+
 
 4. [Features & Implementation](#features--implementation)
    - [Home Page](#home-page)
@@ -509,9 +513,9 @@ interface Dashboard {
 
 
 
-## Display Mappings
+### Display Mappings
 
-### Status Display Mapping
+#### Status Display Mapping
 ```typescript
 const STATUS_DISPLAY = {
     notStarted: 'Not Started',
@@ -526,7 +530,7 @@ const STATUS_COLORS = {
 };
 ```
 
-### Priority Display Mapping
+#### Priority Display Mapping
 ```typescript
 const PRIORITY_DISPLAY = {
     ranges: [
@@ -539,7 +543,7 @@ const PRIORITY_DISPLAY = {
 };
 ```
 
-### Effort Display Mapping
+#### Effort Display Mapping
 ```typescript
 const EFFORT_DISPLAY = {
     1: 'Very Low',
@@ -550,7 +554,7 @@ const EFFORT_DISPLAY = {
 };
 ```
 
-### Time Range Display Mapping
+#### Time Range Display Mapping
 ```typescript
 const TIME_RANGE_DISPLAY = {
     day: 'Daily',
@@ -563,9 +567,63 @@ const TIME_RANGE_DISPLAY = {
 
 ### Backend Data Models (CosmosDB)
 
-All variable names are in snake_case. Each document type is stored in its own container in CosmosDB.
 
-#### Task Document
+All variable names are in snake_case. All documents are stored in a single container to enable efficient querying of a user's complete data set.
+
+#### Container Strategy & Querying
+The application uses a single container strategy where:
+- All document types (tasks, goals, categories, dashboard) live in one container
+- Documents are partitioned by `user_id`
+- The `type` field enables filtering within a user's partition
+- Single query can efficiently retrieve all data for a user
+
+Example query to get all user data:
+```sql
+SELECT * FROM c
+WHERE c.user_id = @userId
+```
+
+#### Indexing Strategy
+The container uses these indexes to optimize common query patterns:
+```json
+{
+    "indexingPolicy": {
+        "includedPaths": [
+            {
+                "path": "/user_id/?",
+                "indexes": [
+                    {
+                        "kind": "Range",
+                        "dataType": "String"
+                    }
+                ]
+            },
+            {
+                "path": "/type/?",
+                "indexes": [
+                    {
+                        "kind": "Range",
+                        "dataType": "String"
+                    }
+                ]
+            },
+            {
+                "path": "/updated_at/?",
+                "indexes": [
+                    {
+                        "kind": "Range",
+                        "dataType": "String"
+                    }
+                ]
+            }
+        ]
+    }
+}
+```
+
+#### Document Models
+
+##### Task Document
 ```json
 {
     // Metadata
@@ -642,7 +700,7 @@ All variable names are in snake_case. Each document type is stored in its own co
 }
 ```
 
-#### Goal Document
+##### Goal Document
 ```json
 {
     // Metadata
@@ -698,12 +756,13 @@ All variable names are in snake_case. Each document type is stored in its own co
 }
 ```
 
-#### Category Document
+##### Category Document
 ```json
 {
     // Metadata
     "id": "string (UUID)",
     "user_id": "string (UUID)",
+    "type": "category",
     "partition_key": "string (user_id)",
     
     // Core Fields
@@ -739,12 +798,13 @@ All variable names are in snake_case. Each document type is stored in its own co
 }
 ```
 
-#### Dashboard Document
+##### Dashboard Document
 ```json
 {
     // Metadata
     "id": "string (UUID)",
     "user_id": "string (UUID)",
+    "type": "dashboard",
     "partition_key": "string (user_id)",
     
     // Widgets Configuration
@@ -764,7 +824,7 @@ All variable names are in snake_case. Each document type is stored in its own co
 
 
 
-### APIs
+## APIs
 
 The backend provides a RESTful API that serves as a data persistence layer. All endpoints require authentication via a Bearer token.
 
