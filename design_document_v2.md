@@ -1389,7 +1389,188 @@ const checkmarkVariants = {
 - Celebration effects for important tasks and achievements
 - Spring animation for task card removal
 
+Weekly Plan Page
+Overview
+The Weekly Plan Page offers a calendar-style interface for scheduling and managing tasks across a seven-day period (e.g., Monday–Sunday). This page follows the same frontend-driven architecture and design principles used throughout the application:
 
+Optimistic Updates: All changes to tasks (e.g., scheduling, status updates) are immediately reflected in the UI and stored in the Redux state.
+Debounced Sync: A background sync to the backend (/api/v1/sync) ensures data consistency, using the Smart Debounce Manager configured for different change types (drag, text edits, status updates, etc.).
+Centralized Data Models: Leverages the existing Task interface (and other data models) defined in the design document. No new data model is required for the Weekly Plan view.
+Goals & Requirements
+Visual Scheduling
+
+Provide a 7-day grid for dropping tasks onto specific days.
+Include day headers with dates, highlighting weekends and the current day.
+Unscheduled Task List
+
+Display tasks without a scheduledDate.
+Support drag-and-drop from the unscheduled list to a calendar day.
+Quick Status Management
+
+Allow in-place updates to a task’s status (e.g., toggling notStarted → workingOnIt → complete).
+Immediately reflect changes in the Redux store and the calendar.
+Weekly Navigation
+
+Buttons to jump to the previous or next week without requiring additional API calls (all data is already in the Redux store).
+Smooth transitions and user feedback when changing weeks.
+Error Handling
+
+Visual and textual feedback if sync operations fail.
+Optionally revert changes if retry attempts are exhausted (consistent with the global error-handling policy).
+Page Layout
+css
+Copy code
++----------------------------------------------------------------+
+|           Weekly Plan Header (Week Range, Nav Buttons)         |
++-----------------+----------------------------------------------+
+| Unscheduled     |        Calendar (7-Day Grid)                 |
+| Tasks Sidebar   |    [Mon]  [Tue]  [Wed]  [Thu]  [Fri]  [Sat]  [Sun]
+| (Drag Source)   |     ...    ...    ...    ...    ...    ...    ...
++-----------------+----------------------------------------------+
+Weekly Plan Header
+
+Displays the currently selected week's date range (e.g., “Dec 29 – Jan 4, 2025”).
+Provides buttons to navigate to the previous or next week.
+Shows an indicator for the current week.
+Unscheduled Task List
+
+A sidebar listing all tasks whose scheduledDate is undefined or null.
+Tasks can be dragged from this list onto a specific day in the 7-day grid.
+Each task card shows basic fields (e.g., title, priority) and can be expanded to reveal more details if needed.
+Calendar (7-Day Grid)
+
+Each column represents a day within the selected week.
+Tasks assigned to a given date appear within that day’s column.
+Allows drag-and-drop between days to reschedule tasks.
+Visual indicators for weekends and the current day (highlighted column or special styling).
+Interactions
+Scheduling a Task
+
+Drag from Sidebar: When a user drags a task from the Unscheduled Task List to a specific day, the scheduledDate field in the Redux store is updated optimistically.
+Drag Between Days: If a user drags a task from one day to another, the existing scheduledDate is replaced with the new date.
+Backend Sync: A debounced call (changeType: 'DRAG_OPERATION') is sent to the /api/v1/sync endpoint to persist the change.
+Updating Task Status
+
+Click/Tap Toggle: Users can click on a status indicator to cycle through notStarted → workingOnIt → complete.
+History Tracking: Each status change is appended to the task’s statusHistory.
+Optimistic UI: Status changes appear immediately, followed by a debounced sync.
+Week Navigation
+
+Previous/Next Week: Buttons update a local selectedWeek range in the Redux store (or a local state slice).
+Instant UI: Since all tasks are already in the global Redux store, no additional fetch is necessary. The display filters tasks by date to show only those falling within the selected week.
+State Management
+Just like in the Home Page and Master List sections, the Weekly Plan Page leverages both local state and Redux state for clarity and consistency:
+
+typescript
+Copy code
+interface WeeklyPlanState {
+    selectedWeek: {
+        startDate: ISODateString;
+        endDate: ISODateString;
+    };
+    draggedTask?: UUID;
+    expandedDays: Record<ISODateString, boolean>;  
+}
+selectedWeek: Defines the current 7-day range displayed on the Weekly Plan.
+draggedTask: Temporarily holds the ID of the task being dragged (for visual feedback).
+expandedDays: A map or array indicating which days are expanded to show full details, if desired.
+Redux Integration
+Global Tasks: The tasks slice in the Redux store already holds all tasks, keyed by their id.
+Selectors:
+typescript
+Copy code
+// Returns all tasks with no scheduledDate
+const selectUnscheduledTasks = createSelector(
+  (state: RootState) => state.tasks.items,
+  (items) => Object.values(items).filter(task => !task.scheduledDate)
+);
+
+// Returns tasks that fall within a specific date
+const selectTasksForDate = (date: ISODateString) => createSelector(
+  (state: RootState) => state.tasks.items,
+  (items) => Object.values(items).filter(task => task.scheduledDate === date)
+);
+Sync: Uses the same sync slice described in the Core Architecture for tracking sync status (e.g., 'idle' | 'syncing' | 'error').
+Components
+WeeklyPlanContainer
+
+Responsibilities:
+Fetches the current selectedWeek from local or Redux state.
+Renders the Week Header and two main sections: Unscheduled Tasks Sidebar and WeeklyCalendar.
+Handles week navigation (previous, next) by updating selectedWeek.
+Implementation:
+On mount, calculates the default selectedWeek (e.g., current Monday–Sunday).
+Listens for changes in the global tasks slice to update the UI in real time.
+WeekHeader
+
+Responsibilities:
+Displays the current week range (e.g., “Dec 29 – Jan 4, 2025”).
+Hosts navigation buttons (Previous Week, Next Week).
+Implementation:
+Reacts to user interactions by adjusting selectedWeek in either local or Redux state.
+No direct API calls, since the data is already in the store.
+UnscheduledTaskList
+
+Responsibilities:
+Lists tasks without a scheduledDate, grouped or sorted by priority (optional).
+Supports drag-and-drop to the weekly calendar.
+Implementation:
+Uses selectUnscheduledTasks to get an array of unscheduled tasks.
+For each task, renders a TaskCard (or a minimal version) showing title, status, and priority.
+Integrates the app’s drag-and-drop library to start a drag action.
+WeeklyCalendar
+
+Responsibilities:
+Renders seven DayColumn components, one for each day in selectedWeek.
+Provides drop targets for tasks.
+Implementation:
+Maps over the 7-day range, passing each date to a DayColumn component.
+Summarizes tasks scheduled for that date via the selectTasksForDate(date) selector.
+DayColumn
+
+Responsibilities:
+Displays all tasks scheduled on that day.
+Accepts dropped tasks and updates their scheduledDate via an optimistic Redux action.
+Implementation:
+On drop, calls a local handler (e.g., handleDrop(taskId, date)) that dispatches an update to the tasks slice.
+If relevant, triggers a sync with changeType: 'DRAG_OPERATION'.
+TaskCard
+
+Responsibilities:
+Displays the minimal or full view of a task (title, status, priority).
+Offers an inline way to toggle status or edit the title.
+Implementation:
+Uses the SmartDebounceManager to handle text, status, or priority changes.
+May be memoized (React.memo) to prevent unnecessary re-renders.
+Styling & Display
+Priority Colors: The getTaskColor() helper (referencing PRIORITY_DISPLAY) ensures consistent color coding across the application.
+Status Indicators: Reuse STATUS_DISPLAY and STATUS_COLORS mappings for consistent labels and color codes.
+Weekend & Current Day Highlights: Additional CSS classes or conditional styling to differentiate Saturday/Sunday columns and highlight the current day.
+Performance Optimizations
+Virtualized Task List
+
+If the Unscheduled Task List grows large, consider virtualizing it by rendering only the visible tasks and a buffer.
+Similar approach as described in the Master List Page.
+Memoized Components
+
+TaskCard, DayColumn, etc. are wrapped with React.memo() to avoid re-renders when unrelated tasks update.
+Use useCallback() for event handlers tied to specific tasks.
+Smart Debounce for Drags
+
+Drag-and-drop operations use a shorter debounce interval (e.g., 800ms) to minimize perceived latency.
+Status changes (STATUS_CHANGE) use 300ms; text edits (TEXT_INPUT) use 1000ms, etc.
+Error Handling
+Sync Failures
+
+If the sync for a drag operation fails, the application shows an error indicator in the SyncIndicator (from the design doc).
+Optionally, reverts the task’s scheduledDate to its previous value after all retries are exhausted.
+Invalid Dates
+
+The UI prevents dropping tasks onto dates outside the displayed week or on read-only sections.
+Graceful error messages if the user tries to schedule a task for an invalid date.
+Concurrent Updates
+
+If the backend merges or overrides certain fields, the application processes updated data in the serverChanges array from the /api/v1/sync response and re-renders accordingly.
 
 ### Master List Page
 
