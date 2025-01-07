@@ -1,19 +1,7 @@
 1. Implement the Backend Fundamentals (Flask + CosmosDB)
-   - Initialize Flask
-     - Set up a minimal Flask app (app.py or wsgi.py) with placeholder endpoints.
-     - Confirm that you can run the Flask server locally.
-   - Connect to CosmosDB
-     - Install and configure the Python SDK for CosmosDB.
-     - Implement a small wrapper/service class for CosmosDB interactions (e.g., create, read, update, delete documents).
-   - Partition & Indexing Strategy
-     - Configure your CosmosDB container with the partition key and indexing policy you outlined (user_id partition, indexes on type, updated_at, etc.).
-     - Test basic queries:
-       ```python
-       SELECT * FROM c WHERE c.user_id = '<TEST_USER>'
-       ```
-   - Authentication & JWT Setup
-     - Implement a basic JWT auth flow (endpoints for login, token generation, token validation).
-     - Protect your core endpoints with a decorator/middleware that checks the Authorization header.
+   - Read Cosmos_db.py to understand the class and how to do use it
+   - Read the design document (v)
+   - Create app.py 
 
    **Why**: You need a working backend to store and retrieve data before you can effectively test the frontend's Redux integration and sync logic.
 
