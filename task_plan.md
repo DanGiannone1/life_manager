@@ -1,3 +1,5 @@
+
+
 1. Implement the Backend Fundamentals (Flask + CosmosDB)
    - [x] Read `backend/cosmos_db.py` to understand the `CosmosDBManager` class and its usage.
    - [x] Review the "Backend Data Models (CosmosDB)" section of the design document.
@@ -25,63 +27,81 @@
      - [x] Return the appropriate `X-RateLimit-*` headers and error response when the limit is exceeded.
 
 3. Initialize the Frontend (React, Vite, TypeScript, Tailwind, Shadcn UI)
-   - [ ] Project Scaffolding
-     - [ ] Generate a Vite project with TypeScript template using `--template react-ts`
-     - [ ] Configure `tsconfig.json` for strict mode and path aliases
-     - [ ] Set up TypeScript strict mode and configure interface usage guidelines
-     - [ ] Configure and document type utility patterns for component props
-     - [ ] Integrate TailwindCSS
-     - [ ] Install Shadcn/UI or replicate a similar approach
-     - [ ] Implement theme configuration
-       - [ ] Set up `tailwind.config.js` with brand colors and typography
-       - [ ] Configure dark mode support
-       - [ ] Add global styles in `globals.css`
-   - [ ] Configure Redux Toolkit
-     - [ ] Set up your root reducer in `store.ts` with slices for tasks, goals, categories, dashboard, sync, etc.
-     - [ ] Implement data normalization structure for tasks, goals, categories as specified in design doc
-     - [ ] Set up selectors for computing derived data
-     - [ ] Add middleware for handling async actions and debounced sync logic
-   - [ ] Global Layout Setup
-     - [ ] Create a `<Layout>` that wraps all pages
-     - [ ] Implement AppLayout component with consistent container widths
-     - [ ] Set up responsive breakpoints alignment with design system
-     - [ ] Confirm navigation between placeholder pages works
+   - [x] Project Scaffolding
+     - [x] Generate a Vite project with TypeScript template using `--template react-ts`
+     - [x] Configure `tsconfig.json` for strict mode and path aliases
+     - [x] Set up TypeScript strict mode and configure interface usage guidelines
+     - [x] Configure and document type utility patterns for component props
+     - [x] Integrate TailwindCSS
+   - [x] Base UI Setup
+     - [x] Initialize Shadcn/UI
+     - [x] Install essential Shadcn components
+     - [x] Create Component Wrappers
+       - [x] Interactive Elements
+         - [x] Button wrapper with brand variants
+         - [x] Input wrapper with consistent styling
+         - [x] Select wrapper with custom theming
+         - [x] Toggle wrapper with animation constants
+       - [x] Feedback Components
+         - [x] Toast wrapper with standard durations
+         - [x] Dialog wrapper with transition timing
+       - [x] Layout Components
+         - [x] Card wrapper with consistent padding/shadows
+         - [x] Container wrapper with max-widths
+       - [x] Navigation Components
+         - [x] Tabs wrapper with brand styling
+         - [x] DropdownMenu wrapper with animations
+   - [x] Theme Configuration
+     - [x] Set up `tailwind.config.js` with brand colors and typography
+     - [x] Configure dark mode support
+     - [x] Add global styles in `globals.css`
+   - [x] Configure Redux Toolkit
+     - [x] Set up your root reducer in `store.ts`
+     - [x] Implement data normalization structure
+     - [x] Set up selectors for computing derived data
+     - [x] Add middleware for handling async actions and debounced sync logic
+   - [x] Global Layout Setup
+     - [x] Create base `<Layout>` component using our wrapped components
+     - [x] Implement `<AppLayout>` with consistent container widths
+     - [x] Set up responsive breakpoints alignment with design system
+     - [x] Add navigation using wrapped components
+     - [x] Test navigation between placeholder pages
 
 4. Implement the Sync Flow (Frontend + Backend Integration)
-   - [ ] Redux Thunks or RTK Query
-     - [ ] Implement `fetchUserData` thunk for GET /api/v1/user-data
-     - [ ] Implement `syncChanges` thunk for POST /api/v1/sync
-     - [ ] Set up type validation for API responses against interfaces
-     - [ ] Implement version handling for interface changes
-   - [ ] Initial Load Flow
-     - [ ] On app start, dispatch `fetchUserData()` to populate the store
-     - [ ] Show loading states appropriately
-   - [ ] Optimistic Updates & Debouncing
-     - [ ] Implement SmartDebounceManager
-     - [ ] Handle immediate Redux updates with queued syncs
-     - [ ] Track pendingChanges in the sync slice
-     - [ ] Implement status cycling animation for task/goal completion
-     - [ ] Configure debounce intervals per change type (text: 1000ms, status: 300ms, etc.)
-   - [ ] Error Handling
-     - [ ] Implement exponential backoff for retry attempts
-     - [ ] Add error state management in sync slice
-   - [ ] Sync Indicator
-     - [ ] Display sync status in Top Panel
-     - [ ] Show last synced time or error states
+   - [x] Redux Thunks or RTK Query
+     - [x] Implement `fetchUserData` thunk for GET /api/v1/user-data
+     - [x] Implement `syncChanges` thunk for POST /api/v1/sync
+     - [x] Set up type validation for API responses against interfaces
+     - [x] Implement version handling for interface changes
+   - [x] Initial Load Flow
+     - [x] On app start, dispatch `fetchUserData()` to populate the store
+     - [x] Show loading states appropriately
+   - [x] Optimistic Updates & Debouncing
+     - [x] Implement SmartDebounceManager
+     - [x] Handle immediate Redux updates with queued syncs
+     - [x] Track pendingChanges in the sync slice
+     - [x] Implement status cycling animation for task/goal completion
+     - [x] Configure debounce intervals per change type (text: 1000ms, status: 300ms, etc.)
+   - [x] Error Handling
+     - [x] Implement exponential backoff for retry attempts
+     - [x] Add error state management in sync slice
+   - [x] Sync Indicator
+     - [x] Display sync status in Top Panel
+     - [x] Show last synced time or error states
 
 5. Build the Global UI Layout (Sidebar, Top Panel)
-   - [ ] Sidebar Implementation
-     - [ ] Create `<Sidebar>` with navigation links
-     - [ ] Implement collapse/expand logic
-     - [ ] Test responsiveness
-   - [ ] Top Panel (Header)
-     - [ ] Add logo/title, Sync Indicator, Settings, and Logout
-     - [ ] Hook up logout functionality
-   - [ ] Responsive Behavior & Styling
-     - [ ] Ensure mobile-friendly layout
-     - [ ] Apply consistent styling
-     - [ ] Implement consistent focus and hover states
-     - [ ] Set up animation timing constants
+   - [x] Sidebar Implementation
+     - [x] Create `<Sidebar>` with navigation links
+     - [x] Implement collapse/expand logic
+     - [x] Test responsiveness
+   - [x] Top Panel (Header)
+     - [x] Add logo/title, Sync Indicator, Settings, and Logout
+     - [x] Hook up logout functionality
+   - [x] Responsive Behavior & Styling
+     - [x] Ensure mobile-friendly layout
+     - [x] Apply consistent styling
+     - [x] Implement consistent focus and hover states
+     - [x] Set up animation timing constants
 
 6. Implement the Home Page (Dashboard + Widgets)
    - [ ] Dashboard Slice
@@ -124,25 +144,37 @@
      - [ ] Implement drag preview and drop animations
 
 8. Implement the Master List Page
-   - [ ] Filter Bar & Search
-     - [ ] Build filter panel with multiple criteria
-     - [ ] Implement search functionality
-     - [ ] Implement collapsible filter bar with animation
-     - [ ] Add priority range filter using PRIORITY_DISPLAY ranges
-   - [ ] Table/Grid Rendering
-     - [ ] Create unified task/goal list view
-     - [ ] Display relevant columns
-     - [ ] Implement virtualized rendering for performance
-     - [ ] Add status cycling with checkmark animation
-   - [ ] Inline Editing
-     - [ ] Enable direct field editing
-     - [ ] Handle debounced syncs
-   - [ ] Sorting & Pagination
-     - [ ] Add sort functionality
-     - [ ] Implement pagination if needed
-   - [ ] Delete / Archive
-     - [ ] Add item removal functionality
-     - [ ] Handle sync states
+   - [x] Filter Bar & Search
+     - [x] Build filter panel with multiple criteria
+     - [x] Implement search functionality
+     - [x] Implement collapsible filter bar with animation
+     - [x] Add priority range filter using PRIORITY_DISPLAY ranges
+   - [x] Table/Grid Rendering
+     - [x] Create unified task/goal list view
+     - [x] Display relevant columns (status, title, priority, effort, category, due date, notes, created/updated)
+     - [x] Implement virtualized rendering for performance
+     - [x] Add status cycling with checkmark animation
+   - [x] Inline Editing
+     - [x] Enable direct field editing for title and notes
+     - [x] Handle debounced syncs
+   - [x] Sorting & Pagination
+     - [x] Add sort functionality for all relevant columns
+     - [x] Implement virtualization instead of pagination for better UX
+   - [x] Delete / Archive
+     - [x] Add item removal functionality
+     - [x] Handle sync states
+   - [x] Date Range Filtering
+     - [x] Fix DatePicker component type issues
+     - [x] Properly handle DateRange vs Date[] types
+     - [x] Add proper null handling for date range clearing
+   - [x] Filter Bar Expansion
+     - [x] Add expand/collapse functionality
+     - [x] Keep search always visible
+     - [x] Add smooth animations for transitions
+   - [x] Page Integration
+     - [x] Create MasterList page component
+     - [x] Add proper routing in App.tsx
+     - [x] Ensure proper layout and spacing
 
 9. Refine the Styling & Theming
    - [ ] Tailwind & Shadcn Pass

@@ -26,8 +26,21 @@ export const tasksSlice = createSlice({
     setError: (state, action: PayloadAction<string | null>) => {
       state.error = action.payload
     },
+    updateTask: (state, action: PayloadAction<{ id: string; changes: Partial<Task> }>) => {
+      const { id, changes } = action.payload;
+      if (state.items[id]) {
+        state.items[id] = { ...state.items[id], ...changes };
+      }
+    },
+    deleteTask: (state, action: PayloadAction<string>) => {
+      const id = action.payload;
+      delete state.items[id];
+    },
+    addTask: (state, action: PayloadAction<Task>) => {
+      state.items[action.payload.id] = action.payload;
+    },
   },
 })
 
-export const { setTasks, setLoading, setError } = tasksSlice.actions
+export const { setTasks, setLoading, setError, updateTask, deleteTask, addTask } = tasksSlice.actions
 export default tasksSlice.reducer 

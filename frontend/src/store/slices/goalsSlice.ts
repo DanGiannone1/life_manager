@@ -26,8 +26,21 @@ export const goalsSlice = createSlice({
     setError: (state, action: PayloadAction<string | null>) => {
       state.error = action.payload
     },
+    updateGoal: (state, action: PayloadAction<{ id: string; changes: Partial<Goal> }>) => {
+      const { id, changes } = action.payload;
+      if (state.items[id]) {
+        state.items[id] = { ...state.items[id], ...changes };
+      }
+    },
+    deleteGoal: (state, action: PayloadAction<string>) => {
+      const id = action.payload;
+      delete state.items[id];
+    },
+    addGoal: (state, action: PayloadAction<Goal>) => {
+      state.items[action.payload.id] = action.payload;
+    },
   },
 })
 
-export const { setGoals, setLoading, setError } = goalsSlice.actions
+export const { setGoals, setLoading, setError, updateGoal, deleteGoal, addGoal } = goalsSlice.actions
 export default goalsSlice.reducer 

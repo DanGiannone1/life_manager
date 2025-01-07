@@ -154,8 +154,8 @@ def main():
 
            # Process each collected file
            for idx, (base_dir, filepath) in enumerate(sorted(filtered_files), 1):
-               print(f"Processing file {idx}/{len(filtered_files)}: {filepath}")
                relative_path = filepath.relative_to(base_dir).as_posix()
+               print(f"{relative_path}")
                
                try:
                    with filepath.open('r', encoding='utf-8', errors='ignore') as code_file:

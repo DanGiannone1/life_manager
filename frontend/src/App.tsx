@@ -1,25 +1,53 @@
-import { useEffect } from 'react'
-import './styles/globals.css'
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { AppLayout } from "@/components/layouts/app-layout";
+import { ROUTES } from "@/lib/navigation";
+import { MasterList } from "@/pages/MasterList";
+
+// Placeholder pages
+const Home = () => <div>Home Page</div>;
+const WeeklyPlan = () => <div>Weekly Plan Page</div>;
+const Settings = () => <div>Settings Page</div>;
 
 function App() {
-  useEffect(() => {
-    // Set up theme based on user preference
-    const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches
-    document.documentElement.classList.toggle('dark', isDarkMode)
-  }, [])
-
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <h1 className="text-4xl font-heading font-bold text-center py-8">
-        Life Manager
-      </h1>
-      <div className="container mx-auto px-4">
-        <p className="text-center">
-          Welcome to Life Manager - Your personal task and goal management system
-        </p>
-      </div>
-    </div>
-  )
+    <Router>
+      <Routes>
+        <Route
+          path={ROUTES.HOME}
+          element={
+            <AppLayout>
+              <Home />
+            </AppLayout>
+          }
+        />
+        <Route
+          path={ROUTES.WEEKLY_PLAN}
+          element={
+            <AppLayout>
+              <WeeklyPlan />
+            </AppLayout>
+          }
+        />
+        <Route
+          path={ROUTES.MASTER_LIST}
+          element={
+            <AppLayout>
+              <MasterList />
+            </AppLayout>
+          }
+        />
+        <Route
+          path={ROUTES.SETTINGS}
+          element={
+            <AppLayout containerWidth="sm">
+              <Settings />
+            </AppLayout>
+          }
+        />
+        <Route path="*" element={<Navigate to={ROUTES.HOME} replace />} />
+      </Routes>
+    </Router>
+  );
 }
 
-export default App
+export default App;

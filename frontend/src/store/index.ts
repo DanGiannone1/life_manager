@@ -5,6 +5,7 @@ import goalsReducer from './slices/goalsSlice'
 import categoriesReducer from './slices/categoriesSlice'
 import dashboardReducer from './slices/dashboardSlice'
 import syncReducer from './slices/syncSlice'
+import masterListReducer from './slices/masterListSlice'
 
 export const store = configureStore({
   reducer: {
@@ -13,6 +14,7 @@ export const store = configureStore({
     categories: categoriesReducer,
     dashboard: dashboardReducer,
     sync: syncReducer,
+    masterList: masterListReducer,
   },
 })
 
