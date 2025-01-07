@@ -1,5 +1,8 @@
 flask==2.3.3
 flask-cors==4.0.0
-azure-cosmos==4.5.1
-azure-identity==1.12.0
+flask-limiter==3.5.0
 python-dotenv==1.0.0
+azure-cosmos==4.5.1
+azure-identity==1.14.1
+pyhumps==3.8.0
+python-dateutil==2.8.2

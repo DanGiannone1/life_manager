@@ -31,9 +31,17 @@
 
 
 4. [Features & Implementation](#features--implementation)
+   - [Sidebar & Top Panel](#sidebar--top-panel)
    - [Home Page](#home-page)
    - [Weekly Plan Page](#weekly-plan-page)
    - [Master List Page](#master-list-page)
+   
+5. [Styling & UI](#styling--ui)
+    - [High-Level Strategy](#high-level-strategy)
+    - [Layout Architecture](#layout-architecture)
+    - [Design Tokens](#design-tokens)
+    - [Interactive Elements](#interactive-elements)
+    - [Component Architecture](#component-architecture)
 
 
 
@@ -42,7 +50,7 @@
 ## Core Architecture
 
 ### Technology Stack
-- Frontend: React, NextJS, TailwindCSS, Shadcn Components, Redux Toolkit
+- Frontend: React/Vite, TailwindCSS, Shadcn Components, Redux Toolkit
 - Backend: Python, Flask
 - Database: CosmosDB
 
@@ -1676,4 +1684,3 @@ Dark mode support leverages Tailwind's `dark:` variants with carefully considere
 }
 ```
 
-Pages and components automatically respect the global or user-selected theme preferences.
