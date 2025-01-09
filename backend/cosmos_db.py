@@ -68,108 +68,128 @@ class CosmosDBManager:
             print(f'Container with id \'{self.cosmos_container_id}\' was found')
         return container
 
-    def create_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+    # Core CRUD Operations
+    def get_item_by_id(self, item_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get a single item by its ID and user_id (partition key)."""
         try:
+            item = self.container.read_item(item=item_id, partition_key=user_id)
+            return item
+        except exceptions.CosmosResourceNotFoundError:
+            return None
+        except Exception as e:
+            print(f"Error retrieving item {item_id}: {str(e)}")
+            raise
+
+    def create_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new item in the container."""
+        try:
+            if 'user_id' not in item:
+                raise ValueError("user_id (partition key) is required for create operation")
+            
+            # Ensure timestamps are set
+            current_time = datetime.now(timezone.utc).isoformat()
+            item['created_at'] = current_time
+            item['updated_at'] = current_time
+            
             created_item = self.container.create_item(body=item)
             print(f"Item created with id: {created_item['id']}")
             return created_item
         except exceptions.CosmosResourceExistsError:
-            print(f"Item with id {item['id']} already exists. Use update_item or upsert_item to modify.")
-            return None
-        except exceptions.CosmosHttpResponseError as e:
-            print(f"An error occurred during creation: {e.message}")
-            return None
+            print(f"Item with id {item.get('id')} already exists")
+            raise
+        except Exception as e:
+            print(f"Error creating item: {str(e)}")
+            raise
 
     def update_item(self, item_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Update an existing item with new values."""
         try:
-            print(f"\n=== Updating Item {item_id} ===")
-            print(f"Update data: {updates}")
-            
-            # First, get the existing item
-            existing_item = self.get_item_by_id(item_id)
+            # Get the existing item
+            existing_item = self.get_item_by_id(item_id, updates['user_id'])
             if not existing_item:
-                print(f"ERROR: Item with id {item_id} not found")
                 raise ValueError(f"Item with id {item_id} not found")
-            
-            print(f"Found existing item: {existing_item}")
-            
-            # Update the existing item with new values
+
+            # Update the item with new values
             existing_item.update(updates)
-            
-            # Ensure we have the partition key (user_id)
-            if 'user_id' not in existing_item:
-                print("ERROR: user_id (partition key) is required for update operation")
-                raise ValueError("user_id (partition key) is required for update operation")
-            
-            print(f"Attempting to replace item with updated data: {existing_item}")
-            try:
-                updated_item = self.container.replace_item(
-                    item=item_id,
-                    body=existing_item,
-                    partition_key=existing_item['user_id']
-                )
-                print(f"Successfully updated item: {updated_item}")
-                return updated_item
-            except Exception as inner_e:
-                print(f"ERROR during replace operation: {str(inner_e)}")
-                print(f"Stack trace:\n{traceback.format_exc()}")
-                raise
-            
+            existing_item['updated_at'] = datetime.now(timezone.utc).isoformat()
+
+            # Replace the item in the container
+            updated_item = self.container.replace_item(
+                item=item_id,
+                body=existing_item
+            )
+            return updated_item
         except Exception as e:
-            print(f"ERROR during update: {str(e)}")
-            print(f"Stack trace:\n{traceback.format_exc()}")
+            print(f"Error updating item {item_id}: {str(e)}")
             raise
 
-    def upsert_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+    def delete_item(self, item_id: str, user_id: str) -> bool:
+        """Delete an item by its ID."""
         try:
-            print(f"\n=== Upserting Item ===")
-            print(f"Item data: {item}")
-            
-            if 'user_id' not in item:
-                print("ERROR: user_id (partition key) is required for upsert operation")
-                raise ValueError("user_id (partition key) is required for upsert operation")
-            
-            try:
-                upserted_item = self.container.upsert_item(
-                    body=item,
-                    partition_key=item['user_id']
-                )
-                print(f"Successfully upserted item: {upserted_item}")
-                return upserted_item
-            except Exception as inner_e:
-                print(f"ERROR during upsert operation: {str(inner_e)}")
-                print(f"Stack trace:\n{traceback.format_exc()}")
-                raise
-                
-        except Exception as e:
-            print(f"ERROR during upsert: {str(e)}")
-            print(f"Stack trace:\n{traceback.format_exc()}")
-            raise
-
-    def query_items(self, query: str, parameters: Optional[List[Dict[str, Any]]] = None, partition_key: Optional[str] = None) -> List[Dict[str, Any]]:
-        try:
-            items = list(self.container.query_items(
-                query=query,
-                parameters=parameters,
-                partition_key=partition_key,
-                enable_cross_partition_query=(partition_key is None)
-            ))
-            print(f"Query returned {len(items)} items")
-            return items
-        except exceptions.CosmosHttpResponseError as e:
-            print(f"An error occurred during query: {e.message}")
-            return []
-
-    def delete_item(self, item_id: str, partition_key: str) -> bool:
-        try:
-            self.container.delete_item(item=item_id, partition_key=partition_key)
-            print(f"Item deleted with id: {item_id}")
+            self.container.delete_item(item=item_id, partition_key=user_id)
             return True
         except exceptions.CosmosResourceNotFoundError:
-            print(f"Item with id {item_id} not found. Unable to delete.")
             return False
-        except exceptions.CosmosHttpResponseError as e:
-            print(f"An error occurred during deletion: {e.message}")
-            return False
+        except Exception as e:
+            print(f"Error deleting item {item_id}: {str(e)}")
+            raise
+
+    def get_user_data(self, user_id: str) -> Dict[str, List[Dict[str, Any]]]:
+        """Get all data for a user (tasks, goals, categories, dashboard)."""
+        try:
+            query = """
+            SELECT * FROM c 
+            WHERE c.user_id = @user_id
+            """
+            items = list(self.container.query_items(
+                query=query,
+                parameters=[{"name": "@user_id", "value": user_id}],
+                enable_cross_partition_query=False
+            ))
+
+            # Organize items by type
+            result = {
+                "tasks": [],
+                "goals": [],
+                "categories": [],
+                "dashboard": None
+            }
+
+            for item in items:
+                item_type = item.get("type")
+                if item_type == "task":
+                    result["tasks"].append(item)
+                elif item_type == "goal":
+                    result["goals"].append(item)
+                elif item_type == "category":
+                    result["categories"].append(item)
+                elif item_type == "dashboard":
+                    result["dashboard"] = item
+
+            return result
+        except Exception as e:
+            print(f"Error getting user data: {str(e)}")
+            raise
+
+    def get_changes_since(self, user_id: str, since_timestamp: str) -> List[Dict[str, Any]]:
+        """Get all items that have been updated since a given timestamp."""
+        try:
+            query = """
+            SELECT * FROM c 
+            WHERE c.user_id = @user_id 
+            AND c.updated_at > @since_timestamp
+            """
+            items = list(self.container.query_items(
+                query=query,
+                parameters=[
+                    {"name": "@user_id", "value": user_id},
+                    {"name": "@since_timestamp", "value": since_timestamp}
+                ],
+                enable_cross_partition_query=False
+            ))
+            return items
+        except Exception as e:
+            print(f"Error getting changes since timestamp: {str(e)}")
+            raise
 
 

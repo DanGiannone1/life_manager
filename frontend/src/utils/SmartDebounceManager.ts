@@ -80,21 +80,24 @@ class SmartDebounceManager {
     if (changes.length === 0) return;
 
     try {
-      // Clear the changes before syncing to prevent duplicates
-      this.changes.delete(key);
-      this.timers.delete(key);
+      // Store changes locally but don't clear them yet
+      const changesToSync = [...changes];
 
       // Dispatch the sync thunk
-      await this.dispatch(syncChangesThunk(changes));
+      const result = await this.dispatch(syncChangesThunk(changesToSync)).unwrap();
 
-      // Decrement pending changes counter for each change
-      changes.forEach(() => {
-        this.dispatch!(decrementPendingChanges());
-      });
+      // Only if sync was successful, clear the changes and decrement counter
+      if (result) {
+        this.changes.delete(key);
+        this.timers.delete(key);
+        changesToSync.forEach(() => {
+          this.dispatch!(decrementPendingChanges());
+        });
+      }
     } catch (error) {
       console.error('Error syncing changes:', error);
-      // Note: The sync thunk already handles setting error status
-      // and retry logic, so we don't need additional error handling here
+      // On error, keep the changes in the queue for retry
+      // The sync thunk will handle setting error status
     }
   }
 
@@ -115,17 +118,25 @@ class SmartDebounceManager {
     for (const changes of this.changes.values()) {
       allChanges.push(...changes);
     }
-    this.changes.clear();
 
     if (allChanges.length > 0) {
       try {
-        await this.dispatch(syncChangesThunk(allChanges));
-        // Decrement pending changes counter for each change
-        allChanges.forEach(() => {
-          this.dispatch!(decrementPendingChanges());
-        });
+        // Store changes but don't clear them yet
+        const changesToSync = [...allChanges];
+        
+        // Attempt sync
+        const result = await this.dispatch(syncChangesThunk(changesToSync)).unwrap();
+        
+        // Only if sync was successful, clear the changes and decrement counter
+        if (result) {
+          this.changes.clear();
+          changesToSync.forEach(() => {
+            this.dispatch!(decrementPendingChanges());
+          });
+        }
       } catch (error) {
         console.error('Error syncing all changes:', error);
+        // On error, keep the changes in the queue for retry
       }
     }
   }

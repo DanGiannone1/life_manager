@@ -31,7 +31,7 @@ function App() {
         <Route
           path={ROUTES.MASTER_LIST}
           element={
-            <AppLayout>
+            <AppLayout containerWidth="full">
               <MasterList />
             </AppLayout>
           }

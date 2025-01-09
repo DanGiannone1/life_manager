@@ -1,8 +1,10 @@
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { Task, Goal, Status, STATUS_DISPLAY } from '../../types';
 import { updateTask } from '../../store/slices/tasksSlice';
 import { updateGoal } from '../../store/slices/goalsSlice';
 import { motion } from 'framer-motion';
+import { RootState } from '@/store';
+import { useSync } from '@/hooks/useSync';
 
 interface StatusCellProps {
   item: Task | Goal;
@@ -21,63 +23,117 @@ const cycleStatus = (currentStatus: Status): Status => {
 
 export const StatusCell = ({ item }: StatusCellProps) => {
   const dispatch = useDispatch();
+  const { handleChange, syncStatus } = useSync();
+  
+  // Remove hyphens from ID when accessing Redux state
+  const normalizedId = item.id
+  
+  // Subscribe to the specific item's status in Redux
+  const currentStatus = useSelector((state: RootState) => {
+    const taskStatus = item.type === 'task' ? state.tasks.items[normalizedId]?.status : null;
+    const goalStatus = item.type === 'goal' ? state.goals.items[normalizedId]?.status : null;
+    
+    console.log('Redux state for this item:', {
+      itemId: item.id,
+      normalizedId,
+      itemType: item.type,
+      taskStatus,
+      goalStatus,
+      fullItem: item.type === 'task' ? state.tasks.items[normalizedId] : state.goals.items[normalizedId],
+      allTasks: state.tasks.items // Debug: see all tasks in store
+    });
+    
+    return item.type === 'task' 
+      ? taskStatus
+      : goalStatus;
+  }) || item.status;
+
+  console.log('Using status:', currentStatus, 'from', item.type === 'task' ? 'Redux' : 'props');
 
   const handleStatusClick = () => {
-    const newStatus = cycleStatus(item.status);
+    const newStatus = cycleStatus(currentStatus);
     const now = new Date().toISOString();
+    console.log('New status will be:', newStatus);
 
     if (item.type === 'task') {
-      const statusHistoryEntry = {
+      const changes = {
         status: newStatus,
-        changedAt: now,
-      };
-
-      dispatch(updateTask({
-        id: item.id,
-        changes: {
-          status: newStatus,
-          statusHistory: [...item.statusHistory, statusHistoryEntry],
-          updatedAt: now,
-        },
-      }));
-    } else {
-      const changes: Partial<Goal> = {
-        status: newStatus,
+        statusHistory: [
+          ...item.statusHistory,
+          { status: newStatus, changedAt: now }
+        ],
         updatedAt: now,
       };
 
-      if (newStatus === 'complete') {
-        changes.progressHistory = [
-          ...(item as Goal).progressHistory,
-          {
-            date: now,
-            value: 100,
-            notes: 'Goal completed',
-          },
-        ];
-      }
-
-      dispatch(updateGoal({
-        id: item.id,
+      console.log('Dispatching task update with:', changes);
+      // Update Redux immediately
+      dispatch(updateTask({
+        id: normalizedId,
         changes,
       }));
+
+      // Trigger debounced sync
+      handleChange(
+        'task',
+        'update',
+        changes,
+        'status',
+        normalizedId
+      );
+    } else {
+      const changes = {
+        status: newStatus,
+        updatedAt: now,
+        ...(newStatus === 'complete' && {
+          progressHistory: [
+            ...(item as Goal).progressHistory,
+            {
+              date: now,
+              value: 100,
+              notes: 'Goal completed',
+            },
+          ],
+        }),
+      };
+
+      console.log('Dispatching goal update with:', changes);
+      // Update Redux immediately
+      dispatch(updateGoal({
+        id: normalizedId,
+        changes,
+      }));
+
+      // Trigger debounced sync
+      handleChange(
+        'goal',
+        'update',
+        changes,
+        'status',
+        normalizedId
+      );
+    }
+  };
+
+  const getStatusColor = (status: Status) => {
+    switch (status) {
+      case 'complete':
+        return 'bg-green-100 text-green-800 hover:bg-green-200';
+      case 'workingOnIt':
+        return 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200';
+      default:
+        return 'bg-gray-100 text-gray-800 hover:bg-gray-200';
     }
   };
 
   return (
     <motion.button
       onClick={handleStatusClick}
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-        item.status === 'complete'
-          ? 'bg-green-100 text-green-800'
-          : item.status === 'workingOnIt'
-          ? 'bg-yellow-100 text-yellow-800'
-          : 'bg-gray-100 text-gray-800'
-      }`}
+      className={`inline-flex items-center px-2.5 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-colors ${getStatusColor(currentStatus)}`}
       whileTap={{ scale: 0.95 }}
       layout
+      disabled={syncStatus === 'error'} // Disable the button if there's a sync error
     >
-      {item.status === 'complete' && (
+      {currentStatus === 'complete' && (
         <motion.svg
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
@@ -92,7 +148,7 @@ export const StatusCell = ({ item }: StatusCellProps) => {
           />
         </motion.svg>
       )}
-      {STATUS_DISPLAY[item.status]}
+      {STATUS_DISPLAY[currentStatus]}
     </motion.button>
   );
 };

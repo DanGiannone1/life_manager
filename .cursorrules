@@ -1,3 +1,4 @@
 1. Always read the design document carefully before starting to code. You MUST follow the design document.
 2. Always read the attached files carefully before starting to code. If you feel like you are missing a file in your context, reference the design document project structure and then go find it. 
 3. Always read the project_structure.md file carefully before starting to code.
+4. Always search the codebase for files that are relevant to the task you are working on before starting to code. 

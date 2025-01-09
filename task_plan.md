@@ -74,7 +74,7 @@
      - [x] Set up type validation for API responses against interfaces
      - [x] Implement version handling for interface changes
    - [x] Initial Load Flow
-     - [x] On app start, dispatch `fetchUserData()` to populate the store
+     - [] On app start, dispatch `fetchUserData()` to populate the store
      - [x] Show loading states appropriately
    - [x] Optimistic Updates & Debouncing
      - [x] Implement SmartDebounceManager

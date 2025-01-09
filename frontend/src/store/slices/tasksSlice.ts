@@ -18,7 +18,9 @@ export const tasksSlice = createSlice({
   initialState,
   reducers: {
     setTasks: (state, action: PayloadAction<Record<string, Task>>) => {
-      state.items = action.payload
+      console.log('Setting tasks in Redux:', action.payload);
+      state.items = action.payload;
+      console.log('New tasks state:', state.items);
     },
     setLoading: (state, action: PayloadAction<boolean>) => {
       state.loading = action.payload
@@ -28,8 +30,14 @@ export const tasksSlice = createSlice({
     },
     updateTask: (state, action: PayloadAction<{ id: string; changes: Partial<Task> }>) => {
       const { id, changes } = action.payload;
+      console.log('Updating task in Redux:', { id, changes });
+      console.log('Current state for this task:', state.items[id]);
+      
       if (state.items[id]) {
         state.items[id] = { ...state.items[id], ...changes };
+        console.log('New state for this task:', state.items[id]);
+      } else {
+        console.log('Task not found in Redux state:', id);
       }
     },
     deleteTask: (state, action: PayloadAction<string>) => {
@@ -37,7 +45,9 @@ export const tasksSlice = createSlice({
       delete state.items[id];
     },
     addTask: (state, action: PayloadAction<Task>) => {
+      console.log('Adding task to Redux:', action.payload);
       state.items[action.payload.id] = action.payload;
+      console.log('New tasks state after add:', state.items);
     },
   },
 })

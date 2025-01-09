@@ -32,7 +32,7 @@ const initialState: MasterListState = {
     direction: 'desc',
   },
   view: {
-    filterBarExpanded: true,
+    filterBarExpanded: false,
   },
 };
 

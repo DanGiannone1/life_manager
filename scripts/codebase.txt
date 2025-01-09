@@ -119,40 +119,15 @@ def get_user_data():
         if not user_id:
             raise ValueError("User ID is required")
 
-        # Query all user data from Cosmos DB
-        query = """
-        SELECT * FROM c 
-        WHERE c.user_id = @user_id
-        """
-        items = cosmos_db.query_items(
-            query=query,
-            parameters=[{"name": "@user_id", "value": user_id}],
-            partition_key=user_id
-        )
+        # Get all user data using the new get_user_data method
+        user_data = cosmos_db.get_user_data(user_id)
 
-        # Organize items by type
-        tasks = {}
-        goals = {}
-        categories = {}
-        dashboard = None
-
-        for item in items:
-            item_type = item.get("type")
-            if item_type == "task":
-                tasks[item["id"]] = item
-            elif item_type == "goal":
-                goals[item["id"]] = item
-            elif item_type == "category":
-                categories[item["id"]] = item
-            elif item_type == "dashboard":
-                dashboard = item
-
-        # Create response data
+        # Convert to camelCase for frontend
         response_data = {
-            "tasks": snake_to_camel(tasks),
-            "goals": snake_to_camel(goals),
-            "categories": snake_to_camel(categories),
-            "dashboard": snake_to_camel(dashboard) if dashboard else None,
+            "tasks": snake_to_camel(user_data["tasks"]),
+            "goals": snake_to_camel(user_data["goals"]),
+            "categories": snake_to_camel(user_data["categories"]),
+            "dashboard": snake_to_camel(user_data["dashboard"]) if user_data["dashboard"] else None,
             "lastSyncedAt": datetime.now(timezone.utc).isoformat()
         }
 
@@ -188,18 +163,14 @@ def sync_changes():
 
         # Process each change
         server_changes = []
+        has_errors = False
+
         for change in changes:
             change_type = change.get("type")
             operation = change.get("operation")
             item_id = change.get("id")
             item_data = camel_to_snake(change.get("data", {}))
-            timestamp = change.get("timestamp")
 
-            # Ensure required fields
-            if not all([change_type, operation, timestamp]):
-                raise ValueError("Invalid change object")
-
-            # Add user_id to item_data
             if item_data:
                 item_data["user_id"] = user_id
                 item_data["type"] = change_type
@@ -210,7 +181,6 @@ def sync_changes():
                     if not item_data:
                         raise ValueError("Data is required for create operation")
                     item_data["id"] = item_id or str(uuid.uuid4())
-                    item_data["created_at"] = datetime.now(timezone.utc).isoformat()
                     result = cosmos_db.create_item(item_data)
                     if result:
                         server_changes.append({
@@ -248,46 +218,46 @@ def sync_changes():
             except Exception as operation_error:
                 app.logger.error(f"Error processing change: {operation_error}")
                 app.logger.error(traceback.format_exc())
-                # Continue processing other changes
-                continue
+                has_errors = True
+                error_response = create_api_response(
+                    success=False,
+                    error=str(operation_error),
+                    data={"serverChanges": server_changes}
+                )
+                response = make_response(jsonify(error_response), 500)
+                return add_rate_limit_headers(response)
 
-        # Query for any server-side changes newer than client_last_sync
-        query = """
-        SELECT * FROM c 
-        WHERE c.user_id = @user_id 
-        AND c.updated_at > @client_last_sync
-        """
-        server_items = cosmos_db.query_items(
-            query=query,
-            parameters=[
-                {"name": "@user_id", "value": user_id},
-                {"name": "@client_last_sync", "value": client_last_sync}
-            ],
-            partition_key=user_id
-        )
+        # Only proceed with server changes if no errors occurred
+        if not has_errors:
+            # Get any server-side changes newer than client_last_sync
+            server_items = cosmos_db.get_changes_since(user_id, client_last_sync)
 
-        # Add server items to server_changes if they're not already included
-        processed_ids = {change["id"] for change in server_changes}
-        for item in server_items:
-            if item["id"] not in processed_ids:
-                server_changes.append({
-                    "type": item["type"],
-                    "operation": "update",
-                    "id": item["id"],
-                    "data": snake_to_camel(item),
-                    "timestamp": item["updated_at"]
-                })
+            # Add server items to server_changes if they're not already included
+            processed_ids = {change["id"] for change in server_changes}
+            for item in server_items:
+                if item["id"] not in processed_ids:
+                    server_changes.append({
+                        "type": item["type"],
+                        "operation": "update",
+                        "id": item["id"],
+                        "data": snake_to_camel(item),
+                        "timestamp": item["updated_at"]
+                    })
 
-        response_data = {
-            "serverChanges": server_changes,
-            "syncedAt": datetime.now(timezone.utc).isoformat()
-        }
+            response_data = {
+                "serverChanges": server_changes,
+                "syncedAt": datetime.now(timezone.utc).isoformat()
+            }
 
-        response = make_response(jsonify(create_api_response(success=True, data=response_data)))
-        return add_rate_limit_headers(response)
+            response = make_response(jsonify(create_api_response(success=True, data=response_data)))
+            return add_rate_limit_headers(response)
 
     except Exception as e:
-        raise
+        app.logger.error(f"Unexpected error in sync: {e}")
+        app.logger.error(traceback.format_exc())
+        error_response = create_api_response(success=False, error=str(e))
+        response = make_response(jsonify(error_response), 500)
+        return add_rate_limit_headers(response)
 
 if __name__ == "__main__":
     app.run(debug=True)
@@ -364,109 +334,129 @@ class CosmosDBManager:
             print(f'Container with id \'{self.cosmos_container_id}\' was found')
         return container
 
-    def create_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+    # Core CRUD Operations
+    def get_item_by_id(self, item_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get a single item by its ID and user_id (partition key)."""
         try:
+            item = self.container.read_item(item=item_id, partition_key=user_id)
+            return item
+        except exceptions.CosmosResourceNotFoundError:
+            return None
+        except Exception as e:
+            print(f"Error retrieving item {item_id}: {str(e)}")
+            raise
+
+    def create_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new item in the container."""
+        try:
+            if 'user_id' not in item:
+                raise ValueError("user_id (partition key) is required for create operation")
+            
+            # Ensure timestamps are set
+            current_time = datetime.now(timezone.utc).isoformat()
+            item['created_at'] = current_time
+            item['updated_at'] = current_time
+            
             created_item = self.container.create_item(body=item)
             print(f"Item created with id: {created_item['id']}")
             return created_item
         except exceptions.CosmosResourceExistsError:
-            print(f"Item with id {item['id']} already exists. Use update_item or upsert_item to modify.")
-            return None
-        except exceptions.CosmosHttpResponseError as e:
-            print(f"An error occurred during creation: {e.message}")
-            return None
+            print(f"Item with id {item.get('id')} already exists")
+            raise
+        except Exception as e:
+            print(f"Error creating item: {str(e)}")
+            raise
 
     def update_item(self, item_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Update an existing item with new values."""
         try:
-            print(f"\n=== Updating Item {item_id} ===")
-            print(f"Update data: {updates}")
-            
-            # First, get the existing item
-            existing_item = self.get_item_by_id(item_id)
+            # Get the existing item
+            existing_item = self.get_item_by_id(item_id, updates['user_id'])
             if not existing_item:
-                print(f"ERROR: Item with id {item_id} not found")
                 raise ValueError(f"Item with id {item_id} not found")
-            
-            print(f"Found existing item: {existing_item}")
-            
-            # Update the existing item with new values
+
+            # Update the item with new values
             existing_item.update(updates)
-            
-            # Ensure we have the partition key (user_id)
-            if 'user_id' not in existing_item:
-                print("ERROR: user_id (partition key) is required for update operation")
-                raise ValueError("user_id (partition key) is required for update operation")
-            
-            print(f"Attempting to replace item with updated data: {existing_item}")
-            try:
-                updated_item = self.container.replace_item(
-                    item=item_id,
-                    body=existing_item,
-                    partition_key=existing_item['user_id']
-                )
-                print(f"Successfully updated item: {updated_item}")
-                return updated_item
-            except Exception as inner_e:
-                print(f"ERROR during replace operation: {str(inner_e)}")
-                print(f"Stack trace:\n{traceback.format_exc()}")
-                raise
-            
+            existing_item['updated_at'] = datetime.now(timezone.utc).isoformat()
+
+            # Replace the item in the container
+            updated_item = self.container.replace_item(
+                item=item_id,
+                body=existing_item
+            )
+            return updated_item
         except Exception as e:
-            print(f"ERROR during update: {str(e)}")
-            print(f"Stack trace:\n{traceback.format_exc()}")
+            print(f"Error updating item {item_id}: {str(e)}")
             raise
 
-    def upsert_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+    def delete_item(self, item_id: str, user_id: str) -> bool:
+        """Delete an item by its ID."""
         try:
-            print(f"\n=== Upserting Item ===")
-            print(f"Item data: {item}")
-            
-            if 'user_id' not in item:
-                print("ERROR: user_id (partition key) is required for upsert operation")
-                raise ValueError("user_id (partition key) is required for upsert operation")
-            
-            try:
-                upserted_item = self.container.upsert_item(
-                    body=item,
-                    partition_key=item['user_id']
-                )
-                print(f"Successfully upserted item: {upserted_item}")
-                return upserted_item
-            except Exception as inner_e:
-                print(f"ERROR during upsert operation: {str(inner_e)}")
-                print(f"Stack trace:\n{traceback.format_exc()}")
-                raise
-                
-        except Exception as e:
-            print(f"ERROR during upsert: {str(e)}")
-            print(f"Stack trace:\n{traceback.format_exc()}")
-            raise
-
-    def query_items(self, query: str, parameters: Optional[List[Dict[str, Any]]] = None, partition_key: Optional[str] = None) -> List[Dict[str, Any]]:
-        try:
-            items = list(self.container.query_items(
-                query=query,
-                parameters=parameters,
-                partition_key=partition_key,
-                enable_cross_partition_query=(partition_key is None)
-            ))
-            print(f"Query returned {len(items)} items")
-            return items
-        except exceptions.CosmosHttpResponseError as e:
-            print(f"An error occurred during query: {e.message}")
-            return []
-
-    def delete_item(self, item_id: str, partition_key: str) -> bool:
-        try:
-            self.container.delete_item(item=item_id, partition_key=partition_key)
-            print(f"Item deleted with id: {item_id}")
+            self.container.delete_item(item=item_id, partition_key=user_id)
             return True
         except exceptions.CosmosResourceNotFoundError:
-            print(f"Item with id {item_id} not found. Unable to delete.")
             return False
-        except exceptions.CosmosHttpResponseError as e:
-            print(f"An error occurred during deletion: {e.message}")
-            return False
+        except Exception as e:
+            print(f"Error deleting item {item_id}: {str(e)}")
+            raise
+
+    def get_user_data(self, user_id: str) -> Dict[str, List[Dict[str, Any]]]:
+        """Get all data for a user (tasks, goals, categories, dashboard)."""
+        try:
+            query = """
+            SELECT * FROM c 
+            WHERE c.user_id = @user_id
+            """
+            items = list(self.container.query_items(
+                query=query,
+                parameters=[{"name": "@user_id", "value": user_id}],
+                enable_cross_partition_query=False
+            ))
+
+            # Organize items by type
+            result = {
+                "tasks": [],
+                "goals": [],
+                "categories": [],
+                "dashboard": None
+            }
+
+            for item in items:
+                item_type = item.get("type")
+                if item_type == "task":
+                    result["tasks"].append(item)
+                elif item_type == "goal":
+                    result["goals"].append(item)
+                elif item_type == "category":
+                    result["categories"].append(item)
+                elif item_type == "dashboard":
+                    result["dashboard"] = item
+
+            return result
+        except Exception as e:
+            print(f"Error getting user data: {str(e)}")
+            raise
+
+    def get_changes_since(self, user_id: str, since_timestamp: str) -> List[Dict[str, Any]]:
+        """Get all items that have been updated since a given timestamp."""
+        try:
+            query = """
+            SELECT * FROM c 
+            WHERE c.user_id = @user_id 
+            AND c.updated_at > @since_timestamp
+            """
+            items = list(self.container.query_items(
+                query=query,
+                parameters=[
+                    {"name": "@user_id", "value": user_id},
+                    {"name": "@since_timestamp", "value": since_timestamp}
+                ],
+                enable_cross_partition_query=False
+            ))
+            return items
+        except Exception as e:
+            print(f"Error getting changes since timestamp: {str(e)}")
+            raise
 
 
 
@@ -2302,10 +2292,7 @@ export default {
 --------------------------------------------------------------------------------
 <File: frontend/src/App.css>
 #root {
-  max-width: 1280px;
   margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
 }
 
 .logo {
@@ -2379,7 +2366,7 @@ function App() {
         <Route
           path={ROUTES.MASTER_LIST}
           element={
-            <AppLayout>
+            <AppLayout containerWidth="full">
               <MasterList />
             </AppLayout>
           }
@@ -2453,6 +2440,7 @@ import { NAV_ITEMS } from "@/lib/navigation";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Icons } from "@/components/wrappers/icons";
 import { useMediaQuery } from "@/hooks/useMediaQuery";    
+import { useSync } from "@/hooks/useSync";
 
 // Animation timing constants
 const ANIMATION_DURATION = "duration-300";
@@ -2470,6 +2458,13 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useMediaQuery("(max-width: 768px)");
+  const { loadInitialData } = useSync();
+  const hasData = useSelector((state: RootState) => state.sync.lastSynced !== null);
+
+  // Load initial data on mount
+  useEffect(() => {
+    loadInitialData();
+  }, [loadInitialData]);
 
   // Auto-collapse sidebar on mobile
   useEffect(() => {
@@ -2633,13 +2628,9 @@ export function Layout({ children }: LayoutProps) {
 
         {/* Main Content */}
         <main className={cn(
-          "flex-1 px-4 py-6 transition-all",
+          "flex-1 py-6 transition-all",
           ANIMATION_DURATION,
-          TRANSITION_EASE,
-          {
-            "md:ml-64": !sidebarCollapsed,
-            "md:ml-16": sidebarCollapsed,
-          }
+          TRANSITION_EASE
         )}>
           {children}
         </main>
@@ -2649,165 +2640,61 @@ export function Layout({ children }: LayoutProps) {
 } 
 --------------------------------------------------------------------------------
 <File: frontend/src/components/master-list/AddGoalDialog.tsx>
-import { useState } from "react";
-import { v4 as uuidv4 } from "uuid";
-import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/wrappers/dialog";
-import { Input } from "@/components/wrappers/input";
-import { Select } from "@/components/wrappers/select";
 import { Button } from "@/components/wrappers/button";
-import { useAppDispatch } from "@/store";
-import { addGoal } from "@/store/slices/goalsSlice";
-import { Goal } from "@/types";
-import { useSync } from "@/hooks/useSync";
 import { Plus } from "lucide-react";
 
 export function AddGoalDialog() {
-  const dispatch = useAppDispatch();
-  const { handleChange } = useSync();
-
-  const [open, setOpen] = useState(false);
-
-  // Form fields
-  const [title, setTitle] = useState("");
-  const [priority, setPriority] = useState("50");
-  const [notes, setNotes] = useState("");
-
-  const handleCreateGoal = () => {
-    // Create local Goal object
-    const newId = uuidv4();
-    const now = new Date().toISOString();
-    const newGoal: Goal = {
-      id: newId,
-      userId: "test-user-id", // Replace with real user ID from auth context
-      type: "goal",
-      title,
-      status: "notStarted",
-      priority: parseInt(priority, 10),
-      dynamicPriority: parseInt(priority, 10),
-      createdAt: now,
-      updatedAt: now,
-      // minimal required fields
-      timeline: {
-        targetDate: now,
-      },
-      progressHistory: [],
-      // optional fields
-      notes,
-    };
-
-    // 1) Optimistically add to Redux
-    dispatch(addGoal(newGoal));
-
-    // 2) Queue sync for creation
-    handleChange("goal", "create", newGoal, undefined, newId);
-
-    // 3) Reset form and close dialog
-    setTitle("");
-    setPriority("50");
-    setNotes("");
-    setOpen(false);
-  };
-
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          className="gap-2 bg-white hover:bg-gray-100 border-gray-200"
-        >
-          <Plus className="h-4 w-4" />
-          Add Goal
-        </Button>
-      </DialogTrigger>
-
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Add New Goal</DialogTitle>
-          <DialogDescription>
-            Enter the details for your new goal below.
-          </DialogDescription>
-        </DialogHeader>
-        
-        <div className="space-y-4">
-          {/* Title */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Title</label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Goal title..."
-            />
-          </div>
-
-          {/* Priority */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Priority</label>
-            <Select
-              options={[
-                { value: "100", label: "Very High" },
-                { value: "80", label: "High" },
-                { value: "50", label: "Medium" },
-                { value: "20", label: "Low" },
-                { value: "0", label: "Very Low" },
-              ]}
-              value={priority}
-              onChange={(val) => setPriority(val)}
-            />
-          </div>
-
-          {/* Notes */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Notes</label>
-            <Input
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Notes..."
-            />
-          </div>
-        </div>
-        
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleCreateGoal}>
-            Create Goal
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <Button 
+      variant="outline" 
+      size="sm"
+      className="gap-2"
+    >
+      <Plus className="h-4 w-4" />
+      Add Goal
+    </Button>
   );
 } 
 --------------------------------------------------------------------------------
 <File: frontend/src/components/master-list/AddTaskDialog.tsx>
 import { useState } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/wrappers/dialog";
+import { Button } from "@/components/wrappers/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/wrappers/dialog";
 import { Input } from "@/components/wrappers/input";
 import { Select } from "@/components/wrappers/select";
-import { Button } from "@/components/wrappers/button";
+import { Plus } from "lucide-react";
 import { useAppDispatch } from "@/store";
 import { addTask } from "@/store/slices/tasksSlice";
-import { Task } from "@/types";
 import { useSync } from "@/hooks/useSync";
-import { Plus } from "lucide-react";
+import { Task } from "@/types";
 
 export function AddTaskDialog() {
   const dispatch = useAppDispatch();
   const { handleChange } = useSync();
-
+  
   const [open, setOpen] = useState(false);
-
-  // Form fields
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState("50");
+  const [effort, setEffort] = useState("1");
+  const [category, setCategory] = useState("");
+  const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
 
+  const handleClose = () => {
+    setOpen(false);
+    setTitle("");
+    setPriority("50");
+    setEffort("1");
+    setCategory("");
+    setDueDate("");
+    setNotes("");
+  };
+
   const handleCreateTask = () => {
-    // Create local Task object
     const newId = uuidv4();
     const now = new Date().toISOString();
+    
     const newTask: Task = {
       id: newId,
       userId: "test-user-id", // Replace with real user ID from auth context
@@ -2820,7 +2707,10 @@ export function AddTaskDialog() {
       updatedAt: now,
       statusHistory: [],
       completionHistory: [],
-      notes,
+      ...(effort && { effort: parseInt(effort, 10) }),
+      ...(category && { categoryId: category }),
+      ...(dueDate && { dueDate }),
+      ...(notes && { notes }),
     };
 
     // 1) Optimistically add to Redux
@@ -2830,81 +2720,117 @@ export function AddTaskDialog() {
     handleChange("task", "create", newTask, undefined, newId);
 
     // 3) Reset form and close dialog
-    setTitle("");
-    setPriority("50");
-    setNotes("");
-    setOpen(false);
+    handleClose();
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          className="gap-2 bg-white hover:bg-gray-100 border-gray-200"
-        >
-          <Plus className="h-4 w-4" />
-          Add Task
-        </Button>
-      </DialogTrigger>
+    <>
+      <Button 
+        variant="outline" 
+        size="sm"
+        className="gap-2"
+        onClick={() => setOpen(true)}
+      >
+        <Plus className="h-4 w-4" />
+        Add Task
+      </Button>
 
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Add New Task</DialogTitle>
-          <DialogDescription>
-            Enter the details for your new task below.
-          </DialogDescription>
-        </DialogHeader>
-        
-        <div className="space-y-4">
-          {/* Title */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Title</label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Task title..."
-            />
-          </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New Task</DialogTitle>
+            <DialogDescription>
+              Enter the details for your new task below.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Title</label>
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Task title..."
+              />
+            </div>
 
-          {/* Priority */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Priority</label>
-            <Select
-              options={[
-                { value: "100", label: "Very High" },
-                { value: "80", label: "High" },
-                { value: "50", label: "Medium" },
-                { value: "20", label: "Low" },
-                { value: "0", label: "Very Low" },
-              ]}
-              value={priority}
-              onChange={(val) => setPriority(val)}
-            />
-          </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Priority</label>
+              <Select
+                options={[
+                  { value: "100", label: "Very High" },
+                  { value: "80", label: "High" },
+                  { value: "50", label: "Medium" },
+                  { value: "20", label: "Low" },
+                  { value: "0", label: "Very Low" },
+                ]}
+                value={priority}
+                onChange={(val) => setPriority(val)}
+              />
+            </div>
 
-          {/* Notes */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Notes</label>
-            <Input
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Notes..."
-            />
+            <div>
+              <label className="block text-sm font-medium mb-1">Effort</label>
+              <Select
+                options={[
+                  { value: "1", label: "1 - Quick" },
+                  { value: "2", label: "2 - Small" },
+                  { value: "3", label: "3 - Medium" },
+                  { value: "5", label: "5 - Large" },
+                  { value: "8", label: "8 - Very Large" },
+                  { value: "13", label: "13 - Huge" },
+                ]}
+                value={effort}
+                onChange={(val) => setEffort(val)}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Category</label>
+              <Select
+                options={[
+                  { value: "work", label: "Work" },
+                  { value: "personal", label: "Personal" },
+                  { value: "health", label: "Health" },
+                  { value: "finance", label: "Finance" },
+                  { value: "education", label: "Education" },
+                  { value: "other", label: "Other" },
+                ]}
+                value={category}
+                onChange={(val) => setCategory(val)}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Due Date</label>
+              <Input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">Notes</label>
+              <Input
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Add any notes..."
+              />
+            </div>
           </div>
-        </div>
-        
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleCreateTask}>
-            Create Task
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={handleClose}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateTask}>
+              Create Task
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 } 
 --------------------------------------------------------------------------------
@@ -3236,70 +3162,71 @@ interface RowProps {
   data: {
     items: Item[];
     categories: Record<string, Category>;
-    onDelete: (item: Item) => void;
   };
 }
+
+const getPriorityDisplay = (priority: number) => {
+  const range = PRIORITY_DISPLAY.ranges.find(r => priority >= r.min);
+  return {
+    label: range?.label || 'Unknown',
+    color: range?.color || 'gray.500'
+  };
+};
+
+const formatDate = (dateString: string | undefined) => {
+  if (!dateString) return '';
+  return format(new Date(dateString), "MM-dd-yy");
+};
 
 const Row = ({ index, style, data }: RowProps) => {
   const item = data.items[index];
   if (!item) return null;
 
   const categories = data.categories;
+  const priority = getPriorityDisplay(item.priority);
+  const dueDate = item.type === 'task' 
+    ? (item as Task).dueDate 
+    : (item as Goal).timeline.targetDate;
 
   return (
     <div
       style={style}
       className="flex items-center border-b border-gray-200 hover:bg-gray-50"
     >
-      <div className="flex-none w-32 px-6 py-4">
-        <StatusCell item={item} />
-      </div>
-      <div className="flex-1 px-6 py-4">
+      <div className="flex-1 px-6 py-4 border-r border-gray-100">
         <InlineEdit item={item} field="title" />
       </div>
-      <div className="flex-none w-24 px-6 py-4">
-        <div className="flex items-center">
-          <div className="flex-1">
-            {item.priority}
-          </div>
-        </div>
+      <div className="flex-none w-32 px-6 py-4 border-r border-gray-100">
+        <StatusCell item={item} />
       </div>
-      <div className="flex-none w-24 px-6 py-4">
-        {item.effort && EFFORT_DISPLAY[item.effort as keyof typeof EFFORT_DISPLAY]}
-      </div>
-      <div className="flex-none w-32 px-6 py-4">
-        {item.categoryId && categories[item.categoryId]?.name}
-      </div>
-      <div className="flex-none w-32 px-6 py-4">
-        {item.type === 'task'
-          ? (item as Task).dueDate
-          : (item as Goal).timeline.targetDate}
-      </div>
-      <div className="flex-1 px-6 py-4">
-        <InlineEdit item={item} field="notes" />
-      </div>
-      <div className="flex-none w-32 px-6 py-4">
-        {format(new Date(item.createdAt), "PPP")}
-      </div>
-      <div className="flex-none w-32 px-6 py-4">
-        {format(new Date(item.updatedAt), "PPP")}
-      </div>
-      <div className="flex-none w-24 px-6 py-4">
-        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-          item.type === 'task' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
+      <div className="flex-none w-24 px-6 py-4 border-r border-gray-100">
+        <span className={`inline-flex items-center px-2.5 py-1.5 rounded-full text-xs font-medium ${
+          priority.color.includes('red') ? 'bg-red-100 text-red-800' :
+          priority.color.includes('orange') ? 'bg-orange-100 text-orange-800' :
+          priority.color.includes('yellow') ? 'bg-yellow-100 text-yellow-800' :
+          priority.color.includes('green') ? 'bg-green-100 text-green-800' :
+          'bg-gray-100 text-gray-800'
         }`}>
-          {item.type}
+          {priority.label}
         </span>
       </div>
-      <div className="flex-none w-16 px-6 py-4">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => data.onDelete(item)}
-          className="text-red-600 hover:text-red-800"
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+      <div className="flex-none w-24 px-6 py-4 border-r border-gray-100">
+        {item.effort && EFFORT_DISPLAY[item.effort as keyof typeof EFFORT_DISPLAY]}
+      </div>
+      <div className="flex-none w-32 px-6 py-4 border-r border-gray-100">
+        {item.categoryId && categories[item.categoryId]?.name}
+      </div>
+      <div className="flex-none w-32 px-6 py-4 border-r border-gray-100">
+        {formatDate(dueDate)}
+      </div>
+      <div className="flex-1 px-6 py-4 border-r border-gray-100">
+        <InlineEdit item={item} field="notes" />
+      </div>
+      <div className="flex-none w-32 px-6 py-4 border-r border-gray-100">
+        {formatDate(item.createdAt)}
+      </div>
+      <div className="flex-none w-32 px-6 py-4 border-r border-gray-100">
+        {formatDate(item.updatedAt)}
       </div>
     </div>
   );
@@ -3382,63 +3309,48 @@ export const ItemTable = () => {
     }
   });
 
-  const handleDelete = (item: Item) => {
-    if (item.type === 'task') {
-      dispatch(deleteTask(item.id));
-    } else {
-      dispatch(deleteGoal(item.id));
-    }
-  };
-
   return (
     <div className="bg-white rounded-lg shadow overflow-hidden">
       {/* Header */}
       <div className="flex items-center bg-gray-50 border-b border-gray-200" style={{ height: HEADER_HEIGHT }}>
-        <div className="flex-none w-32 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-          Status
-        </div>
-        <div className="flex-1 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+        <div className="flex-1 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
           Title
         </div>
-        <div className="flex-none w-24 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+        <div className="flex-none w-32 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
+          Status
+        </div>
+        <div className="flex-none w-24 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
           Priority
         </div>
-        <div className="flex-none w-24 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+        <div className="flex-none w-24 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
           Effort
         </div>
-        <div className="flex-none w-32 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+        <div className="flex-none w-32 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
           Category
         </div>
-        <div className="flex-none w-32 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+        <div className="flex-none w-32 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
           Due Date
         </div>
-        <div className="flex-1 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+        <div className="flex-1 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
           Notes
         </div>
-        <div className="flex-none w-32 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+        <div className="flex-none w-32 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200">
           Created
         </div>
         <div className="flex-none w-32 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
           Updated
         </div>
-        <div className="flex-none w-24 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-          Type
-        </div>
-        <div className="flex-none w-16 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-          Actions
-        </div>
       </div>
 
       {/* Virtualized List */}
       <List
-        height={600} // Adjust based on your needs
+        height={600}
         itemCount={sortedItems.length}
         itemSize={ROW_HEIGHT}
         width="100%"
         itemData={{
           items: sortedItems,
           categories,
-          onDelete: handleDelete,
         }}
       >
         {Row}
@@ -3450,11 +3362,13 @@ export const ItemTable = () => {
 export default ItemTable; 
 --------------------------------------------------------------------------------
 <File: frontend/src/components/master-list/StatusCell.tsx>
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { Task, Goal, Status, STATUS_DISPLAY } from '../../types';
 import { updateTask } from '../../store/slices/tasksSlice';
 import { updateGoal } from '../../store/slices/goalsSlice';
 import { motion } from 'framer-motion';
+import { RootState } from '@/store';
+import { useSync } from '@/hooks/useSync';
 
 interface StatusCellProps {
   item: Task | Goal;
@@ -3473,63 +3387,117 @@ const cycleStatus = (currentStatus: Status): Status => {
 
 export const StatusCell = ({ item }: StatusCellProps) => {
   const dispatch = useDispatch();
+  const { handleChange, syncStatus } = useSync();
+  
+  // Remove hyphens from ID when accessing Redux state
+  const normalizedId = item.id
+  
+  // Subscribe to the specific item's status in Redux
+  const currentStatus = useSelector((state: RootState) => {
+    const taskStatus = item.type === 'task' ? state.tasks.items[normalizedId]?.status : null;
+    const goalStatus = item.type === 'goal' ? state.goals.items[normalizedId]?.status : null;
+    
+    console.log('Redux state for this item:', {
+      itemId: item.id,
+      normalizedId,
+      itemType: item.type,
+      taskStatus,
+      goalStatus,
+      fullItem: item.type === 'task' ? state.tasks.items[normalizedId] : state.goals.items[normalizedId],
+      allTasks: state.tasks.items // Debug: see all tasks in store
+    });
+    
+    return item.type === 'task' 
+      ? taskStatus
+      : goalStatus;
+  }) || item.status;
+
+  console.log('Using status:', currentStatus, 'from', item.type === 'task' ? 'Redux' : 'props');
 
   const handleStatusClick = () => {
-    const newStatus = cycleStatus(item.status);
+    const newStatus = cycleStatus(currentStatus);
     const now = new Date().toISOString();
+    console.log('New status will be:', newStatus);
 
     if (item.type === 'task') {
-      const statusHistoryEntry = {
+      const changes = {
         status: newStatus,
-        changedAt: now,
-      };
-
-      dispatch(updateTask({
-        id: item.id,
-        changes: {
-          status: newStatus,
-          statusHistory: [...item.statusHistory, statusHistoryEntry],
-          updatedAt: now,
-        },
-      }));
-    } else {
-      const changes: Partial<Goal> = {
-        status: newStatus,
+        statusHistory: [
+          ...item.statusHistory,
+          { status: newStatus, changedAt: now }
+        ],
         updatedAt: now,
       };
 
-      if (newStatus === 'complete') {
-        changes.progressHistory = [
-          ...(item as Goal).progressHistory,
-          {
-            date: now,
-            value: 100,
-            notes: 'Goal completed',
-          },
-        ];
-      }
-
-      dispatch(updateGoal({
-        id: item.id,
+      console.log('Dispatching task update with:', changes);
+      // Update Redux immediately
+      dispatch(updateTask({
+        id: normalizedId,
         changes,
       }));
+
+      // Trigger debounced sync
+      handleChange(
+        'task',
+        'update',
+        changes,
+        'status',
+        normalizedId
+      );
+    } else {
+      const changes = {
+        status: newStatus,
+        updatedAt: now,
+        ...(newStatus === 'complete' && {
+          progressHistory: [
+            ...(item as Goal).progressHistory,
+            {
+              date: now,
+              value: 100,
+              notes: 'Goal completed',
+            },
+          ],
+        }),
+      };
+
+      console.log('Dispatching goal update with:', changes);
+      // Update Redux immediately
+      dispatch(updateGoal({
+        id: normalizedId,
+        changes,
+      }));
+
+      // Trigger debounced sync
+      handleChange(
+        'goal',
+        'update',
+        changes,
+        'status',
+        normalizedId
+      );
+    }
+  };
+
+  const getStatusColor = (status: Status) => {
+    switch (status) {
+      case 'complete':
+        return 'bg-green-100 text-green-800 hover:bg-green-200';
+      case 'workingOnIt':
+        return 'bg-yellow-100 text-yellow-800 hover:bg-yellow-200';
+      default:
+        return 'bg-gray-100 text-gray-800 hover:bg-gray-200';
     }
   };
 
   return (
     <motion.button
       onClick={handleStatusClick}
-      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-        item.status === 'complete'
-          ? 'bg-green-100 text-green-800'
-          : item.status === 'workingOnIt'
-          ? 'bg-yellow-100 text-yellow-800'
-          : 'bg-gray-100 text-gray-800'
-      }`}
+      className={`inline-flex items-center px-2.5 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-colors ${getStatusColor(currentStatus)}`}
       whileTap={{ scale: 0.95 }}
       layout
+      disabled={syncStatus === 'error'} // Disable the button if there's a sync error
     >
-      {item.status === 'complete' && (
+      {currentStatus === 'complete' && (
         <motion.svg
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
@@ -3544,7 +3512,7 @@ export const StatusCell = ({ item }: StatusCellProps) => {
           />
         </motion.svg>
       )}
-      {STATUS_DISPLAY[item.status]}
+      {STATUS_DISPLAY[currentStatus]}
     </motion.button>
   );
 };
@@ -3694,15 +3662,15 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow hover:bg-primary/90",
+          "bg-button text-button-text hover:bg-button-hover",
         destructive:
           "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
         outline:
-          "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
+          "border border-button bg-transparent text-button hover:bg-button-secondary",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+          "bg-button-secondary text-button-secondary-text hover:bg-button-secondary-hover",
+        ghost: "hover:bg-button-secondary text-button",
+        link: "text-button underline-offset-4 hover:underline",
       },
       size: {
         default: "h-9 px-4 py-2",
@@ -4717,22 +4685,15 @@ export { Toggle, toggleVariants }
 import * as React from "react";
 import { Button as ShadcnButton } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { type VariantProps } from "class-variance-authority";
-import { ButtonProps as ShadcnButtonProps } from "@/components/ui/button";
+import { type ButtonProps as ShadcnButtonProps } from "@/components/ui/button";
 
-export interface ButtonProps extends ShadcnButtonProps {
-  children: React.ReactNode;
-  className?: string;
-}
+export type ButtonProps = ShadcnButtonProps;
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = "default", size = "default", ...props }, ref) => {
     return (
       <ShadcnButton
-        className={cn(
-          // Add any additional default styling here
-          className
-        )}
+        className={cn(className)}
         variant={variant}
         size={size}
         ref={ref}
@@ -5877,7 +5838,8 @@ import App from './App'
 import '@/styles/globals.css'
 
 // Set up theme based on user preference
-const isDarkMode = window.matchMedia("(prefers-color-scheme: dark)").matches;
+//const isDarkMode = window.matchMedia("(prefers-color-scheme: dark)").matches;
+const isDarkMode = false;
 document.documentElement.classList.toggle("dark", isDarkMode);
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -5897,7 +5859,7 @@ import { AddGoalDialog } from "@/components/master-list/AddGoalDialog";
 
 export const MasterList = () => {
   return (
-    <div className="space-y-4 p-4">
+    <div className="container mx-auto max-w-[95%] space-y-4 py-4">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-semibold tracking-tight">Master List</h1>
         <div className="flex gap-2">
@@ -6173,7 +6135,7 @@ const initialState: MasterListState = {
     direction: 'desc',
   },
   view: {
-    filterBarExpanded: true,
+    filterBarExpanded: false,
   },
 };
 
@@ -6235,12 +6197,14 @@ interface SyncState {
   status: SyncStatus;
   lastSynced: string | null;
   pendingChanges: number;
+  error: string | null;
 }
 
 const initialState: SyncState = {
   status: 'idle',
   lastSynced: null,
   pendingChanges: 0,
+  error: null,
 }
 
 export const syncSlice = createSlice({
@@ -6248,25 +6212,37 @@ export const syncSlice = createSlice({
   initialState,
   reducers: {
     setStatus: (state, action: PayloadAction<SyncStatus>) => {
-      state.status = action.payload
+      state.status = action.payload;
+      // Clear error when status changes to anything but error
+      if (action.payload !== 'error') {
+        state.error = null;
+      }
+    },
+    setError: (state, action: PayloadAction<string>) => {
+      state.status = 'error';
+      state.error = action.payload;
     },
     setLastSynced: (state, action: PayloadAction<string>) => {
-      state.lastSynced = action.payload
+      // Only update lastSynced if we're not in an error state
+      if (state.status !== 'error') {
+        state.lastSynced = action.payload;
+      }
     },
     incrementPendingChanges: (state) => {
-      state.pendingChanges += 1
+      state.pendingChanges += 1;
     },
     decrementPendingChanges: (state) => {
-      state.pendingChanges = Math.max(0, state.pendingChanges - 1)
+      state.pendingChanges = Math.max(0, state.pendingChanges - 1);
     },
     resetPendingChanges: (state) => {
-      state.pendingChanges = 0
+      state.pendingChanges = 0;
     },
   },
 })
 
 export const { 
   setStatus, 
+  setError,
   setLastSynced, 
   incrementPendingChanges, 
   decrementPendingChanges,
@@ -6296,7 +6272,9 @@ export const tasksSlice = createSlice({
   initialState,
   reducers: {
     setTasks: (state, action: PayloadAction<Record<string, Task>>) => {
-      state.items = action.payload
+      console.log('Setting tasks in Redux:', action.payload);
+      state.items = action.payload;
+      console.log('New tasks state:', state.items);
     },
     setLoading: (state, action: PayloadAction<boolean>) => {
       state.loading = action.payload
@@ -6306,8 +6284,14 @@ export const tasksSlice = createSlice({
     },
     updateTask: (state, action: PayloadAction<{ id: string; changes: Partial<Task> }>) => {
       const { id, changes } = action.payload;
+      console.log('Updating task in Redux:', { id, changes });
+      console.log('Current state for this task:', state.items[id]);
+      
       if (state.items[id]) {
         state.items[id] = { ...state.items[id], ...changes };
+        console.log('New state for this task:', state.items[id]);
+      } else {
+        console.log('Task not found in Redux state:', id);
       }
     },
     deleteTask: (state, action: PayloadAction<string>) => {
@@ -6330,35 +6314,48 @@ import { setTasks } from '../slices/tasksSlice';
 import { setGoals } from '../slices/goalsSlice';
 import { setCategories } from '../slices/categoriesSlice';
 import { setWidgets } from '../slices/dashboardSlice';
-import { setStatus, setLastSynced, resetPendingChanges } from '../slices/syncSlice';
+import { setStatus, setLastSynced, resetPendingChanges, setError } from '../slices/syncSlice';
 import type { RootState } from '../index';
 import type { SyncChange } from '@/types/api';
+import type { Task } from '@/types';
 
 // Fetch all user data
 export const fetchUserDataThunk = createAsyncThunk(
   'sync/fetchUserData',
-  async (_, { dispatch }) => {
+  async (_, { dispatch, rejectWithValue }) => {
     try {
       dispatch(setStatus('syncing'));
       const response = await fetchUserData();
       
-      if (response.success && response.data) {
-        // Update all slices with the fetched data
-        dispatch(setTasks(response.data.tasks));
-        dispatch(setGoals(response.data.goals));
-        dispatch(setCategories(response.data.categories));
-        if (response.data.dashboard) {
-          dispatch(setWidgets(response.data.dashboard.widgets));
-        }
-        dispatch(setLastSynced(response.data.lastSyncedAt));
-        dispatch(setStatus('idle'));
-        return response.data;
+      if (!response.success || !response.data) {
+        throw new Error('Failed to fetch user data: Invalid response');
       }
+
+      console.log('Received tasks from API:', response.data.tasks);
       
-      throw new Error('Failed to fetch user data');
+      // Normalize task IDs by removing hyphens
+      const normalizedTasks = Object.entries(response.data.tasks).reduce((acc, [id, task]) => {
+        const normalizedId = id.replace(/-/g, '');
+        acc[normalizedId] = task;
+        return acc;
+      }, {} as Record<string, Task>);
+
+      console.log('Normalized tasks for Redux:', normalizedTasks);
+
+      // Update all slices with the fetched data
+      dispatch(setTasks(normalizedTasks));
+      dispatch(setGoals(response.data.goals));
+      dispatch(setCategories(response.data.categories));
+      if (response.data.dashboard) {
+        dispatch(setWidgets(response.data.dashboard.widgets));
+      }
+      dispatch(setLastSynced(response.data.lastSyncedAt));
+      dispatch(setStatus('idle'));
+      return response.data;
     } catch (error) {
       dispatch(setStatus('error'));
-      throw error;
+      // Don't update lastSynced on error
+      return rejectWithValue(error);
     }
   }
 );
@@ -6379,56 +6376,61 @@ export const syncChangesThunk = createAsyncThunk(
           clientLastSync: state.sync.lastSynced || new Date().toISOString(),
         });
         
-        if (response.success && response.data) {
-          // Process any server changes
-          if (response.data.serverChanges?.length) {
-            for (const change of response.data.serverChanges) {
-              switch (change.type) {
-                case 'task':
-                  if (change.operation === 'delete') {
-                    // Handle delete
-                  } else if (change.data) {
-                    dispatch(setTasks({ [change.data.id]: change.data }));
-                  }
-                  break;
-                case 'goal':
-                  if (change.operation === 'delete') {
-                    // Handle delete
-                  } else if (change.data) {
-                    dispatch(setGoals({ [change.data.id]: change.data }));
-                  }
-                  break;
-                case 'category':
-                  if (change.operation === 'delete') {
-                    // Handle delete
-                  } else if (change.data) {
-                    dispatch(setCategories({ [change.data.id]: change.data }));
-                  }
-                  break;
-                case 'dashboard':
-                  if (change.operation === 'delete') {
-                    // Handle delete
-                  } else if (change.data) {
-                    dispatch(setWidgets(change.data.widgets));
-                  }
-                  break;
-              }
+        if (!response.success || !response.data) {
+          throw new Error('Sync failed: Invalid response');
+        }
+
+        // Process any server changes
+        if (response.data.serverChanges?.length) {
+          for (const change of response.data.serverChanges) {
+            switch (change.type) {
+              case 'task':
+                if (change.operation === 'delete') {
+                  // Handle delete
+                } else if (change.data) {
+                  dispatch(setTasks({ [change.data.id]: change.data }));
+                }
+                break;
+              case 'goal':
+                if (change.operation === 'delete') {
+                  // Handle delete
+                } else if (change.data) {
+                  dispatch(setGoals({ [change.data.id]: change.data }));
+                }
+                break;
+              case 'category':
+                if (change.operation === 'delete') {
+                  // Handle delete
+                } else if (change.data) {
+                  dispatch(setCategories({ [change.data.id]: change.data }));
+                }
+                break;
+              case 'dashboard':
+                if (change.operation === 'delete') {
+                  // Handle delete
+                } else if (change.data) {
+                  dispatch(setWidgets(change.data.widgets));
+                }
+                break;
             }
           }
-          
-          dispatch(setLastSynced(response.data.syncedAt));
-          dispatch(resetPendingChanges());
-          dispatch(setStatus('idle'));
-          return response.data;
         }
         
-        throw new Error('Sync failed');
+        // Only update lastSynced and reset status if we successfully processed everything
+        dispatch(setLastSynced(response.data.syncedAt));
+        dispatch(resetPendingChanges());
+        dispatch(setStatus('idle'));
+        return response.data;
       } catch (error) {
         attempt++;
+        
+        // On final retry, set error status and reject
         if (attempt === RETRY_CONFIG.maxRetries) {
-          dispatch(setStatus('error'));
+          const errorMessage = error instanceof Error ? error.message : 'Unknown sync error';
+          dispatch(setError(errorMessage));
           return rejectWithValue(error);
         }
+        
         // Wait before retrying
         await new Promise(resolve => setTimeout(resolve, getRetryDelay(attempt)));
       }
@@ -6468,6 +6470,14 @@ export const syncChangesThunk = createAsyncThunk(
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
     --radius: 0.5rem;
+    
+    /* Button colors */
+    --button: 220 17% 27%;
+    --button-hover: 220 13% 35%;
+    --button-text: 0 0% 100%;
+    --button-secondary: 220 13% 91%;
+    --button-secondary-hover: 220 13% 84%;
+    --button-secondary-text: 220 17% 27%;
   }
 
   .dark {
@@ -6495,6 +6505,14 @@ export const syncChangesThunk = createAsyncThunk(
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
+
+    /* Button colors - dark mode */
+    --button: 220 17% 90%;
+    --button-hover: 220 13% 80%;
+    --button-text: 220 17% 27%;
+    --button-secondary: 215 27.9% 16.9%;
+    --button-secondary-hover: 215 27.9% 25%;
+    --button-secondary-text: 210 20% 98%;
   }
 
   body {
@@ -6904,21 +6922,24 @@ class SmartDebounceManager {
     if (changes.length === 0) return;
 
     try {
-      // Clear the changes before syncing to prevent duplicates
-      this.changes.delete(key);
-      this.timers.delete(key);
+      // Store changes locally but don't clear them yet
+      const changesToSync = [...changes];
 
       // Dispatch the sync thunk
-      await this.dispatch(syncChangesThunk(changes));
+      const result = await this.dispatch(syncChangesThunk(changesToSync)).unwrap();
 
-      // Decrement pending changes counter for each change
-      changes.forEach(() => {
-        this.dispatch!(decrementPendingChanges());
-      });
+      // Only if sync was successful, clear the changes and decrement counter
+      if (result) {
+        this.changes.delete(key);
+        this.timers.delete(key);
+        changesToSync.forEach(() => {
+          this.dispatch!(decrementPendingChanges());
+        });
+      }
     } catch (error) {
       console.error('Error syncing changes:', error);
-      // Note: The sync thunk already handles setting error status
-      // and retry logic, so we don't need additional error handling here
+      // On error, keep the changes in the queue for retry
+      // The sync thunk will handle setting error status
     }
   }
 
@@ -6939,17 +6960,25 @@ class SmartDebounceManager {
     for (const changes of this.changes.values()) {
       allChanges.push(...changes);
     }
-    this.changes.clear();
 
     if (allChanges.length > 0) {
       try {
-        await this.dispatch(syncChangesThunk(allChanges));
-        // Decrement pending changes counter for each change
-        allChanges.forEach(() => {
-          this.dispatch!(decrementPendingChanges());
-        });
+        // Store changes but don't clear them yet
+        const changesToSync = [...allChanges];
+        
+        // Attempt sync
+        const result = await this.dispatch(syncChangesThunk(changesToSync)).unwrap();
+        
+        // Only if sync was successful, clear the changes and decrement counter
+        if (result) {
+          this.changes.clear();
+          changesToSync.forEach(() => {
+            this.dispatch!(decrementPendingChanges());
+          });
+        }
       } catch (error) {
         console.error('Error syncing all changes:', error);
+        // On error, keep the changes in the queue for retry
       }
     }
   }
@@ -6994,6 +7023,16 @@ export default {
   				notStarted: 'gray.500',
   				workingOnIt: 'yellow.500',
   				complete: 'green.500'
+  			},
+  			button: {
+  				DEFAULT: 'hsl(var(--button))',
+  				hover: 'hsl(var(--button-hover))',
+  				text: 'hsl(var(--button-text))',
+  				secondary: {
+  					DEFAULT: 'hsl(var(--button-secondary))',
+  					hover: 'hsl(var(--button-secondary-hover))',
+  					text: 'hsl(var(--button-secondary-text))'
+  				}
   			},
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
@@ -7165,6 +7204,14 @@ import path from 'path'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  server: {
+    proxy: {
+      '/api/v1': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -7183,80 +7230,200 @@ export default defineConfig({
 <File: project_structure.md>
 # Project Structure
 
-The following tree represents the structure of the frontend source code:
+This document outlines the organization of the codebase, grouping files by their primary functionality. Some files are listed in multiple categories if they have cross-cutting responsibilities.
 
-```
-backend/app.py
-backend/cosmos_db.py
-frontend/components.json
-frontend/eslint.config.js
-frontend/index.html
-frontend/package.json
-frontend/postcss.config.js
-frontend/src/App.css
-frontend/src/App.tsx
-frontend/src/components/layouts/app-layout.tsx
-frontend/src/components/layouts/layout.tsx
-frontend/src/components/master-list/FilterBar.tsx
-frontend/src/components/master-list/InlineEdit.tsx
-frontend/src/components/master-list/ItemTable.tsx
-frontend/src/components/master-list/StatusCell.tsx
-frontend/src/components/sync/SyncIndicator.tsx
-frontend/src/components/ui/avatar.tsx
-frontend/src/components/ui/button.tsx
-frontend/src/components/ui/calendar.tsx
-frontend/src/components/ui/card.tsx
-frontend/src/components/ui/dialog.tsx
-frontend/src/components/ui/dropdown-menu.tsx
-frontend/src/components/ui/input.tsx
-frontend/src/components/ui/popover.tsx
-frontend/src/components/ui/select.tsx
-frontend/src/components/ui/tabs.tsx
-frontend/src/components/ui/toast.tsx
-frontend/src/components/ui/toaster.tsx
-frontend/src/components/ui/toggle.tsx
-frontend/src/components/wrappers/button.tsx
-frontend/src/components/wrappers/card.tsx
-frontend/src/components/wrappers/container.tsx
-frontend/src/components/wrappers/date-picker.tsx
-frontend/src/components/wrappers/dialog.tsx
-frontend/src/components/wrappers/dropdown-menu.tsx
-frontend/src/components/wrappers/icons.tsx
-frontend/src/components/wrappers/input.tsx
-frontend/src/components/wrappers/select.tsx
-frontend/src/components/wrappers/tabs.tsx
-frontend/src/components/wrappers/toast.tsx
-frontend/src/components/wrappers/toggle.tsx
-frontend/src/hooks/use-toast.ts
-frontend/src/hooks/useDebounce.ts
-frontend/src/hooks/useMediaQuery.ts
-frontend/src/hooks/useSync.ts
-frontend/src/index.css
-frontend/src/lib/navigation.ts
-frontend/src/lib/utils.ts
-frontend/src/main.tsx
-frontend/src/services/api.ts
-frontend/src/store/index.ts
-frontend/src/store/slices/categoriesSlice.ts
-frontend/src/store/slices/dashboardSlice.ts
-frontend/src/store/slices/goalsSlice.ts
-frontend/src/store/slices/syncSlice.ts
-frontend/src/store/slices/tasksSlice.ts
-frontend/src/store/thunks/syncThunks.ts
-frontend/src/styles/globals.css
-frontend/src/types/api.ts
-frontend/src/types/index.ts
-frontend/src/utils/SmartDebounceManager.ts
-frontend/src/vite-env.d.ts
-frontend/tailwind.config.js
-frontend/tsconfig.json
-frontend/tsconfig.node.json
-frontend/vite.config.ts
-project_structure.md
-README.md
-task_plan.md
-widgets.md
-design_document.md
+---
+
+## 1. Core Documents & Planning
+
+- **README.md**  
+  Contains an overview of the project, tech stack, and initial folder structure.
+
+- **design_document.md**  
+  Details architecture, data models, API endpoints, and UI design guidelines.
+
+- **project_structure.md**  
+  (This file) Provides a categorized overview of the codebase.
+
+- **task_plan.md**  
+  A step-by-step feature/implementation checklist.
+
+- **widgets.md**  
+  Specifications for dashboard widgets (e.g., Today’s Tasks, Progress).
+
+---
+
+## 2. Backend (Flask + CosmosDB)
+
+- **backend/app.py**  
+  Main Flask application with `/api/v1/user-data` and `/api/v1/sync` routes, global error handling, and rate limiting.
+
+- **backend/cosmos_db.py**  
+  `CosmosDBManager` class for CRUD operations against Cosmos DB.
+
+- **backend/requirements.txt**  
+  Lists Python dependencies (Flask, azure-cosmos, etc.).
+
+---
+
+## 3. Frontend Entrypoints & Configuration
+
+- **frontend/index.html**  
+  Root HTML for the React app.
+
+- **frontend/package.json**  
+  Lists JavaScript/TypeScript dependencies and scripts.
+
+- **frontend/vite.config.ts**  
+  Vite dev server settings, proxy config for backend, path aliases, etc.
+
+- **frontend/tailwind.config.js**  
+  Tailwind configuration (brand colors, utility classes).
+
+- **frontend/postcss.config.js**  
+  PostCSS + Autoprefixer setup for Tailwind.
+
+- **frontend/src/main.tsx**  
+  Main entry point that renders the React `<App />` and integrates Redux `<Provider>`.
+
+---
+
+## 4. Frontend State Management (Redux)
+
+- **frontend/src/store/index.ts**  
+  Initializes Redux store, combines root reducer, exports store types.
+
+- **frontend/src/store/slices/tasksSlice.ts**  
+  Manages `Task` data, supports add/update/delete operations.
+
+- **frontend/src/store/slices/goalsSlice.ts**  
+  Manages `Goal` data, supports add/update/delete operations.
+
+- **frontend/src/store/slices/categoriesSlice.ts**  
+  Manages `Category` data (name, color, etc.).
+
+- **frontend/src/store/slices/dashboardSlice.ts**  
+  Stores user’s Dashboard widgets, supports widget CRUD.
+
+- **frontend/src/store/slices/syncSlice.ts**  
+  Tracks overall sync status (`idle`, `syncing`, `error`), `lastSynced`, pending changes.
+
+- **frontend/src/store/slices/masterListSlice.ts**  
+  Maintains filters and sorting for the Master List (status, category, date range, etc.).
+
+- **frontend/src/store/thunks/syncThunks.ts**  
+  Async thunks for fetching user data (`fetchUserDataThunk`) and syncing changes (`syncChangesThunk`) with retry/backoff.
+
+---
+
+## 5. Debouncing & Syncing
+
+- **frontend/src/hooks/useSync.ts**  
+  Core hook that initializes `SmartDebounceManager`, handles load/sync actions, and tracks pending changes.
+
+- **frontend/src/utils/SmartDebounceManager.ts**  
+  Batches user edits (e.g., title changes, status toggles) and triggers `syncChangesThunk` after a delay.
+
+- **frontend/src/hooks/useDebounce.ts**  
+  Generic hook to debounce input values (primarily used for inline text editing).
+
+- **frontend/src/store/thunks/syncThunks.ts**  
+  (Referenced again here because it includes sync logic and retry/backoff.)
+
+---
+
+## 6. Frontend Pages & Page-Specific Components
+
+### 6.1 Master List
+
+- **frontend/src/pages/MasterList.tsx**  
+  Top-level container for the Master List. Renders filter panel, item table, and “Add Task/Goal” buttons.
+
+- **frontend/src/components/master-list/FilterBar.tsx**  
+  Collapsible panel offering search, status/category/priority/date-range filters.
+
+- **frontend/src/components/master-list/ItemTable.tsx**  
+  Displays tasks/goals in a virtualized list. Columns for status, priority, dates, etc.
+
+- **frontend/src/components/master-list/StatusCell.tsx**  
+  Lets users toggle between `notStarted`, `workingOnIt`, and `complete`. Syncs changes via `useSync`.
+
+- **frontend/src/components/master-list/InlineEdit.tsx**  
+  Enables inline editing of text fields for tasks/goals with a debounce.
+
+### 6.2 Weekly Plan (Placeholder)
+
+- **frontend/src/App.tsx**  
+  Routes to `<WeeklyPlan />` if implemented. Currently a placeholder.
+
+### 6.3 Home / Dashboard (Placeholder)
+
+- **frontend/src/App.tsx**  
+  Renders `<Home />` at `/`.
+
+---
+
+## 7. Shared Layout & Navigation
+
+- **frontend/src/components/layouts/layout.tsx**  
+  Wraps main content with a top header (sync indicator, settings, logout) and sidebar navigation (collapsible on mobile).
+
+- **frontend/src/components/layouts/app-layout.tsx**  
+  Handles container widths (e.g., `max-w-lg` vs. `max-w-full`) and calls `loadInitialData` on mount.
+
+---
+
+## 8. UI Wrappers & Shared Components
+
+These typically wrap Shadcn UI components or provide minor stylistic/business logic.  
+Files like `button.tsx`, `select.tsx`, etc., implement consistent design tokens and minimal functionality.
+
+- **frontend/src/components/wrappers/button.tsx**  
+- **frontend/src/components/wrappers/dialog.tsx**  
+- **frontend/src/components/wrappers/input.tsx**  
+- **frontend/src/components/wrappers/select.tsx**  
+- **frontend/src/components/wrappers/tabs.tsx**  
+- **frontend/src/components/wrappers/toast.tsx**  
+- **frontend/src/components/wrappers/toggle.tsx**  
+- **frontend/src/components/wrappers/card.tsx**  
+- **frontend/src/components/wrappers/container.tsx**  
+- **frontend/src/components/wrappers/date-picker.tsx**  
+- **frontend/src/components/wrappers/dropdown-menu.tsx**  
+- **frontend/src/components/wrappers/icons.tsx**  
+
+*(Also includes Shadcn-based components in `frontend/src/components/ui/`. These do not contain unique application logic, mainly styling and composition.)*
+
+---
+
+## 9. Miscellaneous Frontend Files
+
+- **frontend/src/components/sync/SyncIndicator.tsx**  
+  A small component that displays the global sync status (syncing, error, last synced time).
+
+- **frontend/src/index.css**  
+  A basic CSS file for global styles and resets.
+
+- **frontend/src/styles/globals.css**  
+  Tailwind’s base/component layers, plus color variables and brand theming.
+
+- **frontend/src/lib/navigation.ts**  
+  Defines app routes (`HOME`, `WEEKLY_PLAN`, etc.) and sidebar navigation items.
+
+- **frontend/src/lib/utils.ts**  
+  Utility function `cn()` for merging class names and other small helpers.
+
+---
+
+## 10. Types & Services
+
+- **frontend/src/types/**  
+  - **index.ts**: Shared TypeScript interfaces (Task, Goal, Category, etc.).  
+  - **api.ts**: Defines API request/response interfaces, error codes, etc.
+
+- **frontend/src/services/api.ts**  
+  Low-level fetch helpers for `/api/v1/user-data` and `/api/v1/sync` calls, plus retry config.
+
+
 --------------------------------------------------------------------------------
 <File: README.md>
 # life_manager
@@ -7423,7 +7590,7 @@ We should have a data model in cosmos DB. When we mark a recurring task complete
      - [x] Set up type validation for API responses against interfaces
      - [x] Implement version handling for interface changes
    - [x] Initial Load Flow
-     - [x] On app start, dispatch `fetchUserData()` to populate the store
+     - [] On app start, dispatch `fetchUserData()` to populate the store
      - [x] Show loading states appropriately
    - [x] Optimistic Updates & Debouncing
      - [x] Implement SmartDebounceManager

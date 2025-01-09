@@ -9,6 +9,7 @@ import { NAV_ITEMS } from "@/lib/navigation";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Icons } from "@/components/wrappers/icons";
 import { useMediaQuery } from "@/hooks/useMediaQuery";    
+import { useSync } from "@/hooks/useSync";
 
 // Animation timing constants
 const ANIMATION_DURATION = "duration-300";
@@ -26,6 +27,13 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const isMobile = useMediaQuery("(max-width: 768px)");
+  const { loadInitialData } = useSync();
+  const hasData = useSelector((state: RootState) => state.sync.lastSynced !== null);
+
+  // Load initial data on mount
+  useEffect(() => {
+    loadInitialData();
+  }, [loadInitialData]);
 
   // Auto-collapse sidebar on mobile
   useEffect(() => {
@@ -189,13 +197,9 @@ export function Layout({ children }: LayoutProps) {
 
         {/* Main Content */}
         <main className={cn(
-          "flex-1 px-4 py-6 transition-all",
+          "flex-1 py-6 transition-all",
           ANIMATION_DURATION,
-          TRANSITION_EASE,
-          {
-            "md:ml-64": !sidebarCollapsed,
-            "md:ml-16": sidebarCollapsed,
-          }
+          TRANSITION_EASE
         )}>
           {children}
         </main>

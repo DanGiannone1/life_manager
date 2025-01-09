@@ -22,7 +22,7 @@ CORS(app)  # Enable CORS for all routes
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"]
+    default_limits=["600 per day", "150 per hour"]
 )
 
 # Initialize CosmosDB manager
@@ -104,11 +104,11 @@ def handle_error(error: Exception) -> tuple[Dict[str, Any], int]:
     return jsonify(response), status_code
 
 @app.route("/api/v1/user-data", methods=["GET"])
-@limiter.limit("60 per hour")
+@limiter.limit("180 per hour")
 def get_user_data():
     """
     Get all data for a user (tasks, goals, categories, dashboard).
-    Rate limit: 60 requests per hour
+    Rate limit: 180 requests per hour
     """
     try:
         # Get user_id from auth token (placeholder - implement actual auth)
@@ -116,40 +116,15 @@ def get_user_data():
         if not user_id:
             raise ValueError("User ID is required")
 
-        # Query all user data from Cosmos DB
-        query = """
-        SELECT * FROM c 
-        WHERE c.user_id = @user_id
-        """
-        items = cosmos_db.query_items(
-            query=query,
-            parameters=[{"name": "@user_id", "value": user_id}],
-            partition_key=user_id
-        )
+        # Get all user data using the new get_user_data method
+        user_data = cosmos_db.get_user_data(user_id)
 
-        # Organize items by type
-        tasks = {}
-        goals = {}
-        categories = {}
-        dashboard = None
-
-        for item in items:
-            item_type = item.get("type")
-            if item_type == "task":
-                tasks[item["id"]] = item
-            elif item_type == "goal":
-                goals[item["id"]] = item
-            elif item_type == "category":
-                categories[item["id"]] = item
-            elif item_type == "dashboard":
-                dashboard = item
-
-        # Create response data
+        # Convert to camelCase for frontend
         response_data = {
-            "tasks": snake_to_camel(tasks),
-            "goals": snake_to_camel(goals),
-            "categories": snake_to_camel(categories),
-            "dashboard": snake_to_camel(dashboard) if dashboard else None,
+            "tasks": snake_to_camel(user_data["tasks"]),
+            "goals": snake_to_camel(user_data["goals"]),
+            "categories": snake_to_camel(user_data["categories"]),
+            "dashboard": snake_to_camel(user_data["dashboard"]) if user_data["dashboard"] else None,
             "lastSyncedAt": datetime.now(timezone.utc).isoformat()
         }
 
@@ -160,11 +135,11 @@ def get_user_data():
         raise
 
 @app.route("/api/v1/sync", methods=["POST"])
-@limiter.limit("120 per minute")
+@limiter.limit("360 per minute")
 def sync_changes():
     """
     Sync changes between frontend and backend.
-    Rate limit: 120 requests per minute
+    Rate limit: 360 requests per minute
     """
     try:
         # Get user_id from auth token (placeholder - implement actual auth)
@@ -185,18 +160,14 @@ def sync_changes():
 
         # Process each change
         server_changes = []
+        has_errors = False
+
         for change in changes:
             change_type = change.get("type")
             operation = change.get("operation")
             item_id = change.get("id")
             item_data = camel_to_snake(change.get("data", {}))
-            timestamp = change.get("timestamp")
 
-            # Ensure required fields
-            if not all([change_type, operation, timestamp]):
-                raise ValueError("Invalid change object")
-
-            # Add user_id to item_data
             if item_data:
                 item_data["user_id"] = user_id
                 item_data["type"] = change_type
@@ -207,7 +178,6 @@ def sync_changes():
                     if not item_data:
                         raise ValueError("Data is required for create operation")
                     item_data["id"] = item_id or str(uuid.uuid4())
-                    item_data["created_at"] = datetime.now(timezone.utc).isoformat()
                     result = cosmos_db.create_item(item_data)
                     if result:
                         server_changes.append({
@@ -245,46 +215,46 @@ def sync_changes():
             except Exception as operation_error:
                 app.logger.error(f"Error processing change: {operation_error}")
                 app.logger.error(traceback.format_exc())
-                # Continue processing other changes
-                continue
+                has_errors = True
+                error_response = create_api_response(
+                    success=False,
+                    error=str(operation_error),
+                    data={"serverChanges": server_changes}
+                )
+                response = make_response(jsonify(error_response), 500)
+                return add_rate_limit_headers(response)
 
-        # Query for any server-side changes newer than client_last_sync
-        query = """
-        SELECT * FROM c 
-        WHERE c.user_id = @user_id 
-        AND c.updated_at > @client_last_sync
-        """
-        server_items = cosmos_db.query_items(
-            query=query,
-            parameters=[
-                {"name": "@user_id", "value": user_id},
-                {"name": "@client_last_sync", "value": client_last_sync}
-            ],
-            partition_key=user_id
-        )
+        # Only proceed with server changes if no errors occurred
+        if not has_errors:
+            # Get any server-side changes newer than client_last_sync
+            server_items = cosmos_db.get_changes_since(user_id, client_last_sync)
 
-        # Add server items to server_changes if they're not already included
-        processed_ids = {change["id"] for change in server_changes}
-        for item in server_items:
-            if item["id"] not in processed_ids:
-                server_changes.append({
-                    "type": item["type"],
-                    "operation": "update",
-                    "id": item["id"],
-                    "data": snake_to_camel(item),
-                    "timestamp": item["updated_at"]
-                })
+            # Add server items to server_changes if they're not already included
+            processed_ids = {change["id"] for change in server_changes}
+            for item in server_items:
+                if item["id"] not in processed_ids:
+                    server_changes.append({
+                        "type": item["type"],
+                        "operation": "update",
+                        "id": item["id"],
+                        "data": snake_to_camel(item),
+                        "timestamp": item["updated_at"]
+                    })
 
-        response_data = {
-            "serverChanges": server_changes,
-            "syncedAt": datetime.now(timezone.utc).isoformat()
-        }
+            response_data = {
+                "serverChanges": server_changes,
+                "syncedAt": datetime.now(timezone.utc).isoformat()
+            }
 
-        response = make_response(jsonify(create_api_response(success=True, data=response_data)))
-        return add_rate_limit_headers(response)
+            response = make_response(jsonify(create_api_response(success=True, data=response_data)))
+            return add_rate_limit_headers(response)
 
     except Exception as e:
-        raise
+        app.logger.error(f"Unexpected error in sync: {e}")
+        app.logger.error(traceback.format_exc())
+        error_response = create_api_response(success=False, error=str(e))
+        response = make_response(jsonify(error_response), 500)
+        return add_rate_limit_headers(response)
 
 if __name__ == "__main__":
     app.run(debug=True)
