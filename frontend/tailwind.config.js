@@ -1,34 +1,24 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: ["class"],
   content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
   ],
-  darkMode: ['class', "class"],
   theme: {
   	extend: {
   		colors: {
-  			brandPrimary: '#1D4ED8',
-  			brandSecondary: '#9333EA',
-  			brandAccent: '#F59E0B',
-  			brandNeutral: {
-  				DEFAULT: '#374151',
-  				dark: '#9CA3AF'
+  			primary: {
+  				DEFAULT: 'hsl(var(--primary))',
+  				foreground: 'hsl(var(--primary-foreground))'
   			},
-  			status: {
-  				notStarted: 'gray.500',
-  				workingOnIt: 'yellow.500',
-  				complete: 'green.500'
+  			secondary: {
+  				DEFAULT: 'hsl(var(--secondary))',
+  				foreground: 'hsl(var(--secondary-foreground))'
   			},
-  			button: {
-  				DEFAULT: 'hsl(var(--button))',
-  				hover: 'hsl(var(--button-hover))',
-  				text: 'hsl(var(--button-text))',
-  				secondary: {
-  					DEFAULT: 'hsl(var(--button-secondary))',
-  					hover: 'hsl(var(--button-secondary-hover))',
-  					text: 'hsl(var(--button-secondary-text))'
-  				}
+  			accent: {
+  				DEFAULT: 'hsl(var(--accent))',
+  				foreground: 'hsl(var(--accent-foreground))'
   			},
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
@@ -40,21 +30,9 @@ export default {
   				DEFAULT: 'hsl(var(--popover))',
   				foreground: 'hsl(var(--popover-foreground))'
   			},
-  			primary: {
-  				DEFAULT: 'hsl(var(--primary))',
-  				foreground: 'hsl(var(--primary-foreground))'
-  			},
-  			secondary: {
-  				DEFAULT: 'hsl(var(--secondary))',
-  				foreground: 'hsl(var(--secondary-foreground))'
-  			},
   			muted: {
   				DEFAULT: 'hsl(var(--muted))',
   				foreground: 'hsl(var(--muted-foreground))'
-  			},
-  			accent: {
-  				DEFAULT: 'hsl(var(--accent))',
-  				foreground: 'hsl(var(--accent-foreground))'
   			},
   			destructive: {
   				DEFAULT: 'hsl(var(--destructive))',
@@ -75,27 +53,7 @@ export default {
   			sans: [
   				'Inter',
   				'sans-serif'
-  			],
-  			heading: [
-  				'Poppins',
-  				'sans-serif'
   			]
-  		},
-  		animation: {
-  			'status-check': 'status-check 0.3s ease-in-out'
-  		},
-  		keyframes: {
-  			'status-check': {
-  				'0%': {
-  					transform: 'scale(0)'
-  				},
-  				'50%': {
-  					transform: 'scale(1.2)'
-  				},
-  				'100%': {
-  					transform: 'scale(1)'
-  				}
-  			}
   		},
   		borderRadius: {
   			lg: 'var(--radius)',
