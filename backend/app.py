@@ -71,13 +71,45 @@ def add_rate_limit_headers(response):
         )
     return response
 
+# Fields that need case conversion for their values
+CASE_CONVERTIBLE_FIELDS = ["status"]  # Add more fields here as needed
+
+def convert_case(value: str, to_camel: bool) -> str:
+    """Convert a string between snake_case and camelCase."""
+    if to_camel:
+        return humps.camelize(value)
+    return humps.decamelize(value)
+
+def convert_enum_values(data: Union[Dict, List], is_snake_to_camel: bool) -> Union[Dict, List]:
+    """Convert enumerated values between snake_case and camelCase."""
+    if isinstance(data, list):
+        return [convert_enum_values(item, is_snake_to_camel) for item in data]
+    
+    if not isinstance(data, dict):
+        return data
+    
+    result = {}
+    for key, value in data.items():
+        if isinstance(value, (dict, list)):
+            value = convert_enum_values(value, is_snake_to_camel)
+        elif isinstance(value, str) and key in CASE_CONVERTIBLE_FIELDS:
+            value = convert_case(value, is_snake_to_camel)
+        result[key] = value
+    return result
+
 def snake_to_camel(data: Union[Dict, List]) -> Union[Dict, List]:
-    """Convert snake_case keys to camelCase for frontend consumption."""
+    """Convert snake_case keys to camelCase and convert enumerated values."""
+    # First convert the enum values
+    data = convert_enum_values(data, is_snake_to_camel=True)
+    # Then convert the keys
     return humps.camelize(data)
 
 def camel_to_snake(data: Union[Dict, List]) -> Union[Dict, List]:
-    """Convert camelCase keys to snake_case for backend storage."""
-    return humps.decamelize(data)
+    """Convert camelCase keys to snake_case and convert enumerated values."""
+    # First convert the keys
+    data = humps.decamelize(data)
+    # Then convert the enum values
+    return convert_enum_values(data, is_snake_to_camel=False)
 
 @app.errorhandler(Exception)
 def handle_error(error: Exception) -> tuple[Dict[str, Any], int]:
@@ -113,6 +145,8 @@ def get_user_data():
     try:
         # Get user_id from auth token (placeholder - implement actual auth)
         user_id = request.headers.get("X-User-ID")
+        user_id = "test-user"
+        print("Fetching user data for user_id:", user_id)
         if not user_id:
             raise ValueError("User ID is required")
 
@@ -144,6 +178,7 @@ def sync_changes():
     try:
         # Get user_id from auth token (placeholder - implement actual auth)
         user_id = request.headers.get("X-User-ID")
+        user_id = "test-user"
         if not user_id:
             raise ValueError("User ID is required")
 

@@ -40,9 +40,10 @@ life-manager/
 │   │   │   ├── slices/
 │   │   │   │   ├── taskSlice.ts      # Task state and reducers
 │   │   │   │   └── syncSlice.ts      # Sync state and reducers
+│   │   │   ├── logger.ts             # Logging middleware and utilities
 │   │   │   └── syncEngine.ts         # Store setup + sync orchestration
 │   │   │
-│   │   ├── lib/
+│   │   ├── utils/
 │   │   │   ├── types.ts     # Interfaces from design doc
 │   │   │   └── api.ts       # API client
 │   │   │
@@ -54,3 +55,42 @@ life-manager/
 │
 ├── README.md
 └── .gitignore
+
+
+# Frontend Hierarchy
+
+## Root Components
+
+### `App.tsx`
+- Root component that provides core setup:
+  - Redux Provider configuration
+  - Router implementation
+  - Implements AppLayout for main structure
+
+### `AppLayout.tsx`
+- Main layout wrapper component:
+  - Accepts `containerWidth` prop for content control
+  - Wraps content in base Layout component
+  - Manages container max-width constraints
+
+### `Layout.tsx`
+- Base layout component responsible for:
+  - Managing sidebar state
+  - Implementing core structure:
+    - TopPanel
+    - Sidebar
+    - Main content area
+  - Handling responsive behaviors
+
+## Layout Components
+
+### `TopPanel.tsx`
+- Header component that displays:
+  - Sync status
+  - Settings
+  - Other top-level controls
+
+### `Sidebar.tsx`
+- Navigation sidebar component:
+  - Contains main navigation menu
+  - Handles collapsible state

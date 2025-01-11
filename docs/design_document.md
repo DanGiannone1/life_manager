@@ -363,17 +363,47 @@ const TIME_RANGE_DISPLAY = {
 ### Backend Data Models (CosmosDB)
 
 All variable names are in snake_case. All documents are stored in a single container to enable efficient querying of a user's complete data set.
-The frontend uses camelCase for its data models. A library or manual conversion process will be used to handle the differences in naming conventions during API requests and responses.
+The frontend uses camelCase for its data models. A manual conversion process is used to handle the differences in naming conventions during API requests and responses.
 
-#### Case Conversion Function
+#### Case Conversion Functions
 
 All data transformations between the backend's `snake_case` data models and the frontend's `camelCase` data models are handled on the backend. This ensures that the frontend receives data in the expected format without needing to perform any conversion logic.
 
-The backend uses a dedicated transformation function or library to convert data structures between the two naming conventions. This process occurs before sending data in API responses.
+The backend uses two types of case conversion:
 
-For example, a `task` document from CosmosDB with fields like `user_id`, `created_at`, and `due_date` will be transformed into a JSON object with fields like `userId`, `createdAt`, and `dueDate` before being sent to the frontend.
+1. **Key Case Conversion**: All object keys are converted between snake_case and camelCase.
+   ```python
+   # Example key conversion:
+   "user_id" <-> "userId"
+   "created_at" <-> "createdAt"
+   "due_date" <-> "dueDate"
+   ```
 
-This approach centralizes the transformation logic, making it easier to maintain and ensuring consistency across all API responses. It also simplifies the frontend code by removing the need for any data conversion logic.
+2. **Value Case Conversion**: Certain enumerated string values are also converted between cases.
+   ```python
+   # Fields that need value case conversion:
+   CASE_CONVERTIBLE_FIELDS = ["status"]  # Add more fields as needed
+
+   # Example value conversion for status:
+   "not_started" <-> "notStarted"
+   "working_on_it" <-> "workingOnIt"
+   ```
+
+The conversion process:
+1. For frontend responses (snake_to_camel):
+   - First converts enumerated values to camelCase
+   - Then converts all keys to camelCase
+
+2. For backend storage (camel_to_snake):
+   - First converts all keys to snake_case
+   - Then converts enumerated values to snake_case
+
+This approach:
+- Centralizes the transformation logic
+- Makes it easy to add new fields that need value conversion
+- Ensures consistency across all API responses
+- Simplifies frontend code by removing the need for any data conversion logic
+- Makes debugging easier with explicit string manipulation
 
 #### Container Strategy & Querying
 The application uses a single container strategy where:
@@ -707,7 +737,7 @@ The application includes a persistent global sidebar (on the left) and a top pan
 
 ##### Collapse/Expand Control
 - A button (e.g., a hamburger icon or double-chevron) that toggles the sidebar's width
-- Stores user preference (collapsed/expanded) in Redux or local storage
+- Uses local React state since it only affects the layout
 
 ##### Responsive Behavior
 - Mobile: The sidebar may slide in/out over the content
@@ -716,6 +746,7 @@ The application includes a persistent global sidebar (on the left) and a top pan
 ##### Implementation Details
 - Housed in a `<Sidebar>` component, rendered at the same level as the main content
 - All navigation items are stored in an array or config object (e.g., `NAV_LINKS = [{ path: '/home', label: 'Home', icon: ... }, ...]`), then mapped to `<NavLink>` items
+- Uses local React state for collapse state since it only affects the layout
 
 
 #### Top Panel

@@ -47,6 +47,11 @@ export default {
   				'3': 'hsl(var(--chart-3))',
   				'4': 'hsl(var(--chart-4))',
   				'5': 'hsl(var(--chart-5))'
+  			},
+  			grayButton: {
+  				DEFAULT: '#9CA3AF',
+  				hover: '#6B7280',
+  				foreground: '#ffffff'
   			}
   		},
   		fontFamily: {

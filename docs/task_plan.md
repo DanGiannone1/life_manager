@@ -6,23 +6,24 @@
 
 [x] - Create a react vite app with typescript named 'frontend'. Install packages necessary to adhere to design doc. 
 [x] - Set up initial configuration (TypeScript, Tailwind, shadcn/ui)
-
-[ ] - Create scaffolding for the frontend:
-    [ ] - Set up Redux store structure (tasks and sync slices)
-    [ ] - Create base layout components:
-        [ ] - Sidebar component with navigation
-        [ ] - Top panel with sync status
+[x] - Create scaffolding for the frontend:
+    [x] - Set up Redux store structure (tasks and sync slices)
+    [x] - Set up API client and sync engine
+    [x] - Create base layout components:
+        [x] - Sidebar component with navigation
+        [x] - Top panel with sync status
     [ ] - Create core pages:
-        [ ] - HomePage.tsx
-        [ ] - WeeklyPlanPage.tsx
-        [ ] - MasterListPage.tsx
+        [x] - HomePage.tsx
+        [x] - WeeklyPlanPage.tsx
+        [x] - MasterListPage.tsx
     [ ] - Implement shared task components:
         [ ] - TaskTable.tsx
         [ ] - TaskTableRow.tsx
         [ ] - TaskCard.tsx
         [ ] - TaskDetails.tsx
-    [ ] - Set up API client and sync engine
 
 
+3. Logging
 
+[x] - Create a logging system that logs to the console and to a file. 
 
