@@ -1,6 +1,9 @@
+// src/App.tsx
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { store } from './state/syncEngine';
+import { Toaster } from "@/components/ui/toaster";
+import "@/components/animations/animations.css";
 
 // Pages
 import HomePage from './pages/HomePage';
@@ -21,6 +24,7 @@ function App() {
             <Route path="/master-list" element={<MasterListPage />} />
           </Route>
         </Routes>
+        <Toaster />
       </Router>
     </Provider>
   );

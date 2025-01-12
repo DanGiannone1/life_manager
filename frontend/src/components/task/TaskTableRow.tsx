@@ -3,38 +3,34 @@ import { useState } from 'react';
 import { TableCell, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
 import { Eye, Trash2, Check } from 'lucide-react';
+import { useToast } from "@/hooks/use-toast";
 import TaskDetails from './TaskDetails';
-import { Task } from '../../utils/types';
+import { Task } from '@/utils/types';
 import {
   STATUS_DISPLAY,
   STATUS_COLORS,
   getPriorityDisplay,
   EFFORT_DISPLAY,
   getRecurrenceDisplay,
-} from '../../utils/displayMappings';
-import { syncChanges, store } from '../../state/syncEngine';
-import { updateTask, deleteTask } from '../../state/slices/taskSlice';
-
-// Import the CSS that controls our checkmark animation
-import '../animations/StatusCheckAnimation.css';
-
-interface TaskTableRowProps {
-  task: Task;
-}
+} from '@/utils/displayMappings';
+import { syncChanges, store } from '@/state/syncEngine';
+import { updateTask, deleteTask } from '@/state/slices/taskSlice';
+import { calculateNextDueDate, createCompletionRecord, shouldResetTask, formatDate } from './Recurrence';
+import '@/components/animations/animations.css';
 
 const STATUS_SEQUENCE = ['notStarted', 'workingOnIt', 'complete'] as const;
 const PRIORITY_SEQUENCE = [0, 20, 40, 60, 80];
 const EFFORT_SEQUENCE = [1, 2, 3, 4, 5];
 
+interface TaskTableRowProps {
+  task: Task;
+}
+
 const TaskTableRow = ({ task }: TaskTableRowProps) => {
+  const { toast } = useToast();
   const [showDetails, setShowDetails] = useState(false);
   const [animateCheck, setAnimateCheck] = useState(false);
-
-  // Format date safely
-  const formatDate = (date: string | undefined) => {
-    if (!date) return '-';
-    return new Date(date).toLocaleDateString();
-  };
+  const [isResetting, setIsResetting] = useState(false);
 
   // Priority, Effort, Recurrence strings
   const priorityInfo = getPriorityDisplay(task.priority);
@@ -45,31 +41,88 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
     task.recurrence?.rule?.interval
   );
 
-  // Cycle status on click
+  // Handle marking a recurring task as complete
+  const handleRecurringComplete = () => {
+    if (!task.recurrence?.rule) return;
+
+    // Calculate next due date
+    const nextDueDate = calculateNextDueDate(task.dueDate, task.recurrence.rule);
+    
+    // Create completion record
+    const completionRecord = createCompletionRecord(nextDueDate);
+
+    // Show completion state briefly
+    store.dispatch(updateTask({
+      id: task.id,
+      changes: { status: 'complete' }
+    }));
+
+    // Trigger animations
+    setAnimateCheck(true);
+    setTimeout(() => setAnimateCheck(false), 1000);
+
+    // After a delay, reset the task
+    setTimeout(() => {
+      setIsResetting(true);
+
+      // Update task with new status, due date, and completion history
+      store.dispatch(updateTask({
+        id: task.id,
+        changes: {
+          status: 'notStarted',
+          dueDate: nextDueDate,
+          completionHistory: [...task.completionHistory, completionRecord]
+        }
+      }));
+
+      // Sync changes to backend
+      syncChanges('status', [{
+        type: 'task',
+        operation: 'update',
+        id: task.id,
+        data: {
+          status: 'notStarted',
+          dueDate: nextDueDate,
+          completionHistory: [...task.completionHistory, completionRecord]
+        }
+      }]);
+
+      // Show toast notification
+      toast({
+        title: "Task Reset",
+        description: `${task.title} will be due again on ${formatDate(nextDueDate)}`,
+      });
+
+      // Remove resetting state
+      setTimeout(() => setIsResetting(false), 300);
+    }, 1500);
+  };
+
+  // Handle status changes
   const handleStatusClick = () => {
     const currentIndex = STATUS_SEQUENCE.indexOf(task.status);
     const nextIndex = (currentIndex + 1) % STATUS_SEQUENCE.length;
     const nextStatus = STATUS_SEQUENCE[nextIndex];
 
-    // Update in Redux (optimistic UI)
-    store.dispatch(
-      updateTask({
-        id: task.id,
-        changes: { status: nextStatus },
-      })
-    );
+    // If completing a recurring task
+    if (nextStatus === 'complete' && shouldResetTask(task)) {
+      handleRecurringComplete();
+      return;
+    }
 
-    // Debounced sync to server
-    syncChanges('status', [
-      {
-        type: 'task',
-        operation: 'update',
-        id: task.id,
-        data: { status: nextStatus },
-      },
-    ]);
+    // Handle normal status change
+    store.dispatch(updateTask({
+      id: task.id,
+      changes: { status: nextStatus }
+    }));
 
-    // Trigger the check “pop” if newly “complete”
+    syncChanges('status', [{
+      type: 'task',
+      operation: 'update',
+      id: task.id,
+      data: { status: nextStatus }
+    }]);
+
     if (nextStatus === 'complete') {
       setAnimateCheck(true);
       setTimeout(() => setAnimateCheck(false), 1000);
@@ -78,31 +131,27 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
     }
   };
 
-  // Cycle priority on click
+  // Handle priority changes
   const handlePriorityClick = () => {
     const currentIndex = PRIORITY_SEQUENCE.indexOf(task.priority);
     const safeIndex = currentIndex >= 0 ? currentIndex : 0;
     const nextIndex = (safeIndex + 1) % PRIORITY_SEQUENCE.length;
     const nextPriority = PRIORITY_SEQUENCE[nextIndex];
 
-    store.dispatch(
-      updateTask({
-        id: task.id,
-        changes: { priority: nextPriority },
-      })
-    );
+    store.dispatch(updateTask({
+      id: task.id,
+      changes: { priority: nextPriority }
+    }));
 
-    syncChanges('priority', [
-      {
-        type: 'task',
-        operation: 'update',
-        id: task.id,
-        data: { priority: nextPriority },
-      },
-    ]);
+    syncChanges('priority', [{
+      type: 'task',
+      operation: 'update',
+      id: task.id,
+      data: { priority: nextPriority }
+    }]);
   };
 
-  // Cycle effort on click
+  // Handle effort changes
   const handleEffortClick = () => {
     const currentEffort = task.effort || 1;
     const currentIndex = EFFORT_SEQUENCE.indexOf(currentEffort);
@@ -110,44 +159,37 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
     const nextIndex = (safeIndex + 1) % EFFORT_SEQUENCE.length;
     const nextEffort = EFFORT_SEQUENCE[nextIndex];
 
-    store.dispatch(
-      updateTask({
-        id: task.id,
-        changes: { effort: nextEffort },
-      })
-    );
+    store.dispatch(updateTask({
+      id: task.id,
+      changes: { effort: nextEffort }
+    }));
 
-    // re-using 'priority' as the "changeType" here, or define a new one if you prefer
-    syncChanges('priority', [
-      {
-        type: 'task',
-        operation: 'update',
-        id: task.id,
-        data: { effort: nextEffort },
-      },
-    ]);
+    syncChanges('priority', [{
+      type: 'task',
+      operation: 'update',
+      id: task.id,
+      data: { effort: nextEffort }
+    }]);
   };
 
-  // Delete this task
+  // Delete task
   const handleDeleteTask = (id: string) => {
     store.dispatch(deleteTask(id));
-    syncChanges('status', [
-      {
-        type: 'task',
-        operation: 'delete',
-        id,
-      },
-    ]);
+    syncChanges('status', [{
+      type: 'task',
+      operation: 'delete',
+      id
+    }]);
   };
 
   return (
     <>
       <TableRow
-        className="
-          hover:bg-muted/10 
-          even:bg-muted/5 
-          transition-colors
-        "
+        className={[
+          'task-row hover:bg-muted/10 even:bg-muted/5 transition-colors',
+          isResetting ? 'task-resetting' : '',
+          task.status === 'complete' ? 'animate-completion' : '',
+        ].filter(Boolean).join(' ')}
       >
         {/* TITLE */}
         <TableCell className="px-4 py-2">
@@ -160,9 +202,10 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
             onClick={handleStatusClick}
             className={[
               'inline-flex items-center justify-center w-28 h-8 px-2 py-1 rounded-full text-xs relative',
-              'status-bubble', // from StatusCheckAnimation.css
+              'status-bubble',
               STATUS_COLORS[task.status] || 'bg-gray-100 text-gray-800',
               animateCheck ? 'animate-check' : '',
+              task.status === 'complete' ? 'status-complete' : '',
             ].join(' ')}
           >
             {STATUS_DISPLAY[task.status] || task.status}
@@ -200,7 +243,7 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
 
         {/* DUE DATE */}
         <TableCell className="px-4 py-2">
-          {formatDate(task.dueDate)}
+          {task.dueDate ? formatDate(task.dueDate) : '-'}
         </TableCell>
 
         {/* RECURRENCE */}
@@ -216,7 +259,11 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
         {/* ACTIONS */}
         <TableCell className="px-4 py-2 text-right">
           <div className="flex items-center justify-end gap-2">
-            <Button variant="default" size="sm" onClick={() => setShowDetails(true)}>
+            <Button 
+              variant="default" 
+              size="sm" 
+              onClick={() => setShowDetails(true)}
+            >
               <Eye className="h-4 w-4" />
             </Button>
             <Button

@@ -1526,15 +1526,19 @@ module.exports = {
 - Toast notifications follow a standard design pattern
 --------------------------------------------------------------------------------
 <File: docs/project_structure.md>
+# Project Tree
+
+```text
 life-manager/
 ├── docs/
-│   ├── design_doc.md         # Complete system design document
-│   ├── project_structure.md  # This file - explains the project organization
-│   └── task_plan.md         # Development tasks and timeline
+│   ├── design_document.md         # Complete system design document
+│   ├── project_structure.md       # This file - explains the project organization
+│   └── task_plan.md              # Development tasks and timeline
 │
 ├── backend/
-│   ├── app.py               # Routes and business logic
-│   ├── cosmos_db.py         # Database operations
+│   ├── app.py                    # Routes and business logic
+│   ├── cosmos_db.py             # Database operations
+│   ├── testing.py               # Test data generation and cleanup
 │   ├── requirements.txt
 │   └── .env
 │
@@ -1543,21 +1547,42 @@ life-manager/
 │   ├── package.json
 │   ├── vite.config.ts
 │   ├── tsconfig.json
+│   ├── tsconfig.app.json        # App-specific TypeScript config
+│   ├── tsconfig.node.json       # Node-specific TypeScript config
 │   ├── tailwind.config.js
 │   ├── postcss.config.js
+│   ├── eslint.config.js         # ESLint configuration
+│   ├── components.json          # shadcn/ui component configuration
 │   │
 │   ├── src/
-│   │   ├── main.tsx         # Application entry point
-│   │   ├── App.tsx         # Root component and routing
+│   │   ├── main.tsx            # Application entry point
+│   │   ├── App.tsx            # Root component and routing
 │   │   │
 │   │   ├── components/
-│   │   │   ├── ui/         # Add shadcn components as needed
+│   │   │   ├── animations/    # CSS animations
+│   │   │   │   └── StatusCheckAnimation.css
 │   │   │   │
-│   │   │   └── task/       # Task-specific components
-│   │   │       ├── TaskTable.tsx      # Table container & sorting
-│   │   │       ├── TaskTableRow.tsx   # Full task info in tabular format
-│   │   │       ├── TaskCard.tsx       # Compact, draggable version
-│   │   │       └── TaskDetails.tsx    # Shared task display logic
+│   │   │   ├── layouts/      # Layout components
+│   │   │   │   ├── AppLayout.tsx
+│   │   │   │   ├── Sidebar.tsx
+│   │   │   │   └── TopPanel.tsx
+│   │   │   │
+│   │   │   ├── ui/           # shadcn/ui components
+│   │   │   │   ├── button.tsx
+│   │   │   │   ├── card.tsx
+│   │   │   │   ├── checkbox.tsx
+│   │   │   │   ├── dialog.tsx
+│   │   │   │   ├── input.tsx
+│   │   │   │   ├── select.tsx
+│   │   │   │   ├── separator.tsx
+│   │   │   │   ├── skeleton.tsx
+│   │   │   │   └── table.tsx
+│   │   │   │
+│   │   │   └── task/        # Task-specific components
+│   │   │       ├── TaskCard.tsx     # Compact, draggable version
+│   │   │       ├── TaskDetails.tsx  # Detailed task view dialog
+│   │   │       ├── TaskTable.tsx    # Table container & sorting
+│   │   │       └── TaskTableRow.tsx # Full task info in tabular format
 │   │   │
 │   │   ├── pages/
 │   │   │   ├── HomePage.tsx
@@ -1566,94 +1591,196 @@ life-manager/
 │   │   │
 │   │   ├── state/
 │   │   │   ├── slices/
-│   │   │   │   ├── taskSlice.ts      # Task state and reducers
-│   │   │   │   └── syncSlice.ts      # Sync state and reducers
-│   │   │   ├── logger.ts             # Logging middleware and utilities
-│   │   │   └── syncEngine.ts         # Store setup + sync orchestration
+│   │   │   │   ├── taskSlice.ts     # Task state and reducers
+│   │   │   │   └── syncSlice.ts     # Sync state and reducers
+│   │   │   ├── logger.ts            # Logging middleware and utilities
+│   │   │   └── syncEngine.ts        # Store setup + sync orchestration
 │   │   │
 │   │   ├── utils/
-│   │   │   ├── types.ts     # Interfaces from design doc
-│   │   │   └── api.ts       # API client
+│   │   │   ├── api.ts              # API client
+│   │   │   ├── displayMappings.ts  # UI display configurations
+│   │   │   ├── types.ts            # TypeScript interfaces
+│   │   │   └── utils.ts            # Utility functions
 │   │   │
 │   │   └── styles/
-│   │       └── globals.css
+│   │       └── globals.css         # Global styles and Tailwind imports
 │   │
 │   └── public/
 │       └── assets/
 │
 ├── README.md
 └── .gitignore
+```
+
+# Frontend Hierarchy & Styling Architecture
+
+## Core Style Configuration
+
+### 1. Type Definitions (`src/utils/types.ts`)
+- TypeScript interfaces and type definitions for:
+  - Task interfaces
+  - Status types
+  - Recurrence types
+  - State interfaces
+  - Common type definitions
+
+### 2. Display Mappings (`src/utils/displayMappings.ts`)
+- Status colors and display text
+- Priority range definitions and colors
+- Effort level display configurations
+- Recurrence display formatting
+- All UI-related constants and helper functions
+- Color definitions for statuses, priorities, etc.
+
+### 3. Theme Configuration (`tailwind.config.js`)
+- Core design tokens:
+  - Base color palette
+  - Typography settings
+  - Spacing scales
+  - Border radius values
+  - Dark/light mode variables
+
+### 4. Global Styles (`src/styles/globals.css`)
+- Tailwind imports
+- CSS variables
+- Dark/light mode schemes
+- Base element styles
+
+### 5. UI Components (`src/components/ui/`)
+- shadcn/ui base components
+- Consistent styling patterns
+- Theme token usage
+
+## Component Hierarchy
+
+### Root Component (`App.tsx`)
+- Redux Provider configuration
+- Router implementation
+- AppLayout wrapper
+
+### Layout Components
+
+#### `AppLayout.tsx` (`src/components/layouts/`)
+- Main layout wrapper
+- Core page structure
+- Sidebar state management
+- Responsive layout handling
+- TopPanel and Sidebar integration
+
+#### `TopPanel.tsx` (`src/components/layouts/`)
+- Application header
+- Sync status display
+- Settings controls
+- Authentication controls
+
+#### `Sidebar.tsx` (`src/components/layouts/`)
+- Navigation menu
+- Collapsible functionality
+- Route management
+- Active state handling
+
+### Content Pages (`src/pages/`)
+- HomePage.tsx
+- WeeklyPlanPage.tsx
+- MasterListPage.tsx
+
+### Task Components (`src/components/task/`)
+
+#### `TaskTable.tsx`
+- Task list container
+- Table structure
+- Column management
+
+#### `TaskTableRow.tsx`
+- Individual task display
+- Status management
+- Priority display
+- Action handlers
+
+#### `TaskCard.tsx`
+- Compact task display
+- Drag-and-drop support
+- Status indicators
+
+#### `TaskDetails.tsx`
+- Full task information
+- Edit capabilities
+- Modal dialog
+
+### Animation Components (`src/components/animations/`)
+- StatusCheckAnimation.css
+- Task status transitions
+- UI feedback animations
 
 
-# Frontend Hierarchy
-
-## Root Components
-
-### `App.tsx`
-- Root component that provides core setup:
-  - Redux Provider configuration
-  - Router implementation
-  - Implements AppLayout for main structure
-
-### `AppLayout.tsx`
-- Main layout wrapper component:
-  - Accepts `containerWidth` prop for content control
-  - Wraps content in base Layout component
-  - Manages container max-width constraints
-
-### `Layout.tsx`
-- Base layout component responsible for:
-  - Managing sidebar state
-  - Implementing core structure:
-    - TopPanel
-    - Sidebar
-    - Main content area
-  - Handling responsive behaviors
-
-## Layout Components
-
-### `TopPanel.tsx`
-- Header component that displays:
-  - Sync status
-  - Settings
-  - Other top-level controls
-
-### `Sidebar.tsx`
-- Navigation sidebar component:
-  - Contains main navigation menu
-  - Handles collapsible state
 --------------------------------------------------------------------------------
 <File: docs/task_plan.md>
-1. Backend 
+# Task Plan
 
-[x] - Validate that app.py adheres to the design document and everything is implemented correctly 
+1. Backend ✓
+   - [x] Validate that app.py adheres to the design document and everything is implemented correctly
 
-2. Frontend
+2. Frontend Setup ✓
+   - [x] Create a React Vite app with TypeScript named 'frontend'
+   - [x] Install packages necessary to adhere to design doc
+   - [x] Set up initial configuration (TypeScript, Tailwind, shadcn/ui)
+   - [x] Create scaffolding for the frontend:
+       [x] Set up Redux store structure (tasks and sync slices)
+       [x] Set up API client and sync engine
+       [x] Create base layout components:
+           [x] Sidebar component with navigation
+           [x] Top panel with sync status
 
-[x] - Create a react vite app with typescript named 'frontend'. Install packages necessary to adhere to design doc. 
-[x] - Set up initial configuration (TypeScript, Tailwind, shadcn/ui)
-[x] - Create scaffolding for the frontend:
-    [x] - Set up Redux store structure (tasks and sync slices)
-    [x] - Set up API client and sync engine
-    [x] - Create base layout components:
-        [x] - Sidebar component with navigation
-        [x] - Top panel with sync status
-    [ ] - Create core pages:
-        [x] - HomePage.tsx
-        [x] - WeeklyPlanPage.tsx
-        [x] - MasterListPage.tsx
-    [ ] - Implement shared task components:
-        [ ] - TaskTable.tsx
-        [ ] - TaskTableRow.tsx
-        [ ] - TaskCard.tsx
-        [ ] - TaskDetails.tsx
+3. Core Pages 
+   - [ ] HomePage.tsx (scaffolded)
+   - [ ] WeeklyPlanPage.tsx  (scaffolded)
+   - [x] MasterListPage.tsx (implemented with TaskTable)
 
-
-3. Logging
-
-[x] - Create a logging system that logs to the console and to a file. 
+4. Task Components ✓
+   - [x] TaskTable.tsx (complete with sorting and display)
+   - [x] TaskTableRow.tsx (complete with actions and status updates)
+   - [x] TaskDetails.tsx (dialog for viewing task details)
+   - [x] TaskCard.tsx (basic structure)
 
 
+5. Add Task Creation Flow
+   - [ ] Create AddTaskDialog Component
+       - [ ] Create basic dialog structure using shadcn Dialog
+       - [ ] Add form fields for required task properties:
+           - [ ] Title (required)
+           - [ ] Priority (optional)
+           - [ ] Effort (optional)
+           - [ ] Due Date (optional)
+           - [ ] Notes (optional)
+       - [ ] Add form fields for recurrence:
+           - [ ] Is Recurring checkbox
+           - [ ] Frequency select (daily, weekly, monthly, yearly)
+           - [ ] Interval input
+           - [ ] Additional fields based on frequency
+
+   
+   - [ ] Implement Task Creation in Redux
+       - [ ] Add createTask action to taskSlice
+       - [ ] Update syncEngine to handle task creation
+       - [ ] Ensure task creation adheres to core design strategy of optimistic updates, immediate feedback, and debouncing syncs to the backend via syncEngine
+
+   - [ ] Add Task Creation Button
+       - [ ] Add action button in MasterListPage
+
+
+
+
+1. Add "Add Task" functionality
+    -  Create AddTaskDialog component
+    -  Implement task creation flow in Redux
+    -  Add create task API integration (/sync)
+    -  Validate task creation flow adheres to core design strategy
+
+2. Core Functionality 
+    - Add recurrence logic -> when a task with a recurrence is marked complete, reset the status to not started and update the due date based on the recurrence. Add a record of the completion to the completion_history field. 
+    - Add the ability to edit task details (Due Date, Notes, Title) 
+
+3. Create collapsable filter and sort scaffolding 
 --------------------------------------------------------------------------------
 <File: frontend/components.json>
 {
@@ -1740,25 +1867,32 @@ export default tseslint.config(
   "dependencies": {
     "@radix-ui/react-checkbox": "^1.1.3",
     "@radix-ui/react-dialog": "^1.1.4",
+    "@radix-ui/react-label": "^2.1.1",
+    "@radix-ui/react-popover": "^1.1.4",
     "@radix-ui/react-select": "^2.1.4",
     "@radix-ui/react-separator": "^1.1.1",
     "@radix-ui/react-slot": "^1.1.1",
+    "@radix-ui/react-toast": "^1.2.4",
     "@reduxjs/toolkit": "^2.5.0",
     "@types/lodash": "^4.17.14",
     "@types/react-router-dom": "^5.3.3",
+    "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
     "deep-object-diff": "^1.1.9",
     "lodash": "^4.17.21",
     "lucide-react": "^0.471.0",
     "postcss": "^8.4.49",
     "react": "^18.3.1",
+    "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
     "react-redux": "^9.2.0",
     "react-router-dom": "^7.1.1",
     "tailwind-merge": "^2.6.0",
-    "tailwindcss": "^3.4.17"
+    "tailwindcss": "^3.4.17",
+    "uuid": "^11.0.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
@@ -1886,9 +2020,11 @@ export default tseslint.config({
 
 --------------------------------------------------------------------------------
 <File: frontend/src/App.tsx>
+// src/App.tsx
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { store } from './state/syncEngine';
+import { Toaster } from "@/components/ui/toaster";
 
 // Pages
 import HomePage from './pages/HomePage';
@@ -1909,37 +2045,34 @@ function App() {
             <Route path="/master-list" element={<MasterListPage />} />
           </Route>
         </Routes>
+        <Toaster />
       </Router>
     </Provider>
   );
 }
 
 export default App;
-
 --------------------------------------------------------------------------------
-<File: frontend/src/components/animations/StatusCheckAnimation.css>
+<File: frontend/src/components/animations/animations.css>
 /* src/components/animations/StatusCheckAnimation.css */
 
-/* Attach this class to the overall bubble so we can position the check icon within it */
+/* Attach this class to the overall bubble, so we can position the check icon absolutely within it. */
 .status-bubble {
-    position: relative; /* so the .status-check-icon can be absolutely placed */
-    /* Force a consistent bubble size */
-    width: 7rem;       /* pick a width wide enough to show "Working on It" */
-    height: 2rem;      /* a consistent height for the bubble */
-    /* Because we're forcing a width/height, center text with flex or text-align. 
-       (We also do some of that in TaskTableRow, but up to you.)
-    */
+    position: relative;
+    width: 7rem; 
+    height: 2rem; 
+    /* or keep auto width, but if so, test that the icon doesn't overlap text */
   }
   
   /* The check icon itself (initially hidden & scaled down) */
   .status-check-icon {
     position: absolute;
-    right: 0.4rem;                /* tweak to your liking */
+    left: 0.4rem;              /* place it on the left side */
     top: 50%;
     transform: translateY(-50%) scale(0);
     opacity: 0;
     transition: transform 0.3s ease, opacity 0.3s ease;
-    color: white; /* or black, depending on your bubble color */
+    /* color: #xxx; or keep text-current if you want it to match text color */
   }
   
   /* When .animate-check is active, “pop” the check in */
@@ -1965,18 +2098,16 @@ export function AppLayout() {
   }, []);
 
   return (
-    <div className="flex flex-col min-h-screen"> 
-      {/* Top Panel at the top */}
-      <TopPanel />
+    <div className="flex min-h-screen">
+      {/* Sidebar */}
+      <Sidebar 
+        isCollapsed={isCollapsed} 
+        onCollapsedChange={setIsCollapsed} 
+      />
 
-      {/* Main area is a flex container: Sidebar + Main Content */}
-      <div className="flex flex-1">
-        <Sidebar 
-          isCollapsed={isCollapsed} 
-          onCollapsedChange={setIsCollapsed} 
-        />
-
-        {/* Main content area */}
+      {/* Main content area with TopPanel */}
+      <div className="flex flex-col flex-1">
+        <TopPanel />
         <main className="flex-1 p-4 md:p-8 overflow-y-auto">
           <Outlet />
         </main>
@@ -2007,12 +2138,15 @@ export const Sidebar = ({ isCollapsed, onCollapsedChange }: SidebarProps) => {
   return (
     <div
       className={cn(
-        'h-screen bg-card border-r transition-all duration-300',
+        'bg-card border-r transition-all duration-300',
         isCollapsed ? 'w-16' : 'w-64'
       )}
     >
       <div className="flex flex-col h-full">
-        <div className="p-4 flex justify-end">
+        <div className="p-4 flex items-center justify-between">
+          {!isCollapsed && (
+            <span className="text-xl font-bold">Life Manager</span>
+          )}
           <Button
             variant="default"
             size="icon"
@@ -2048,7 +2182,6 @@ export const Sidebar = ({ isCollapsed, onCollapsedChange }: SidebarProps) => {
 --------------------------------------------------------------------------------
 <File: frontend/src/components/layouts/TopPanel.tsx>
 import { useSelector } from 'react-redux';
-import { Link } from 'react-router-dom';
 import { Check, Loader2, AlertCircle } from 'lucide-react';
 import { RootState } from '../../state/syncEngine';
 import { Button } from '../ui/button';
@@ -2090,12 +2223,7 @@ export function TopPanel() {
     return (
         <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur">
             <div className="mx-8">
-                <div className="flex h-14 items-center justify-between">
-                    {/* App Logo/Title */}
-                    <Link to="/" className="flex items-center">
-                        <span className="text-xl font-bold">Life Manager</span>
-                    </Link>
-
+                <div className="flex h-14 items-center justify-end">
                     {/* Right Side Controls */}
                     <div className="flex items-center gap-6">
                         {/* Sync Status */}
@@ -2107,7 +2235,6 @@ export function TopPanel() {
                         <Button
                             variant="default"
                             size="sm"
-                            
                             aria-label="Settings (coming soon)"
                         >
                             Settings
@@ -2117,7 +2244,6 @@ export function TopPanel() {
                         <Button
                             variant="default"
                             size="sm"
-                            
                             aria-label="Login (coming soon)"
                         >
                             Login
@@ -2129,8 +2255,415 @@ export function TopPanel() {
     );
 } 
 --------------------------------------------------------------------------------
+<File: frontend/src/components/task/AddTaskDialog.tsx>
+import React, { useState } from 'react';
+import { useDispatch } from 'react-redux';
+import { v4 as uuidv4 } from 'uuid';
+import { format } from "date-fns";
+import { Calendar as CalendarIcon } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { Checkbox } from '@/components/ui/checkbox';
+import { Task, RecurrenceFrequency } from '@/utils/types';
+import { addTask } from '@/state/slices/taskSlice';
+import { syncChanges } from '@/state/syncEngine';
+import { EFFORT_DISPLAY } from '@/utils/displayMappings';
+import { cn } from '@/utils/utils';
+
+interface AddTaskDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function AddTaskDialog({ open, onOpenChange }: AddTaskDialogProps) {
+  const dispatch = useDispatch();
+  
+  // Form state
+  const [title, setTitle] = useState('');
+  const [priority, setPriority] = useState<number>(40); // Default to Medium
+  const [effort, setEffort] = useState<number>(3); // Default to Medium
+  const [dueDate, setDueDate] = useState<Date>();
+  const [notes, setNotes] = useState('');
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency>('daily');
+  const [recurrenceInterval, setRecurrenceInterval] = useState(1);
+
+  // Form validation state
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const validateForm = (): boolean => {
+    const newErrors: Record<string, string> = {};
+
+    if (!title.trim()) {
+      newErrors.title = 'Title is required';
+    }
+
+    if (isRecurring && recurrenceInterval < 1) {
+      newErrors.recurrenceInterval = 'Interval must be at least 1';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!validateForm()) {
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const newTask: Task = {
+      id: uuidv4(),
+      userId: 'test-user', // TODO: Get from auth context
+      type: 'task',
+      title: title.trim(),
+      status: 'notStarted',
+      priority: priority,
+      dynamicPriority: priority, // Initially same as priority
+      effort: effort,
+      notes: notes.trim() || undefined,
+      dueDate: dueDate?.toISOString(),
+      scheduledDate: undefined,
+      createdAt: now,
+      updatedAt: now,
+      completionHistory: [],
+      recurrence: isRecurring
+        ? {
+            isRecurring: true,
+            rule: {
+              frequency: recurrenceFrequency,
+              interval: recurrenceInterval,
+            },
+          }
+        : undefined,
+    };
+
+    // Dispatch to Redux (optimistic update)
+    dispatch(addTask(newTask));
+
+    // Sync to backend
+    syncChanges('text', [
+      {
+        type: 'task',
+        operation: 'create',
+        id: newTask.id,
+        data: newTask,
+      },
+    ]);
+
+    // Reset form and close dialog
+    resetForm();
+    onOpenChange(false);
+  };
+
+  const resetForm = () => {
+    setTitle('');
+    setPriority(40);
+    setEffort(3);
+    setDueDate(undefined);
+    setNotes('');
+    setIsRecurring(false);
+    setRecurrenceFrequency('daily');
+    setRecurrenceInterval(1);
+    setErrors({});
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Add New Task</DialogTitle>
+          <DialogDescription>
+            Create a new task. Add title and any additional details needed.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Title Input */}
+          <div className="space-y-2">
+            <Label htmlFor="title">
+              Title <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className={errors.title ? 'border-destructive' : ''}
+            />
+            {errors.title && (
+              <p className="text-sm text-destructive">{errors.title}</p>
+            )}
+          </div>
+
+          {/* Priority Select */}
+          <div className="space-y-2">
+            <Label htmlFor="priority">Priority</Label>
+            <Select
+              value={priority.toString()}
+              onValueChange={(value) => setPriority(parseInt(value))}
+            >
+              <SelectTrigger id="priority">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Priority Level</SelectLabel>
+                  <SelectItem value="80">Very High</SelectItem>
+                  <SelectItem value="60">High</SelectItem>
+                  <SelectItem value="40">Medium</SelectItem>
+                  <SelectItem value="20">Low</SelectItem>
+                  <SelectItem value="0">Very Low</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Effort Select */}
+          <div className="space-y-2">
+            <Label htmlFor="effort">Effort</Label>
+            <Select
+              value={effort.toString()}
+              onValueChange={(value) => setEffort(parseInt(value))}
+            >
+              <SelectTrigger id="effort">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>Effort Level</SelectLabel>
+                  {Object.entries(EFFORT_DISPLAY).map(([value, { label }]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Due Date Input */}
+          <div className="space-y-2">
+            <Label htmlFor="dueDate">Due Date</Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant={"outline"}
+                  className={cn(
+                    "w-full justify-start text-left font-normal",
+                    !dueDate && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dueDate ? format(dueDate, "PPP") : "Pick a date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={dueDate}
+                  onSelect={setDueDate}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          {/* Notes Input */}
+          <div className="space-y-2">
+            <Label htmlFor="notes">Notes</Label>
+            <Input
+              id="notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+
+          {/* Recurrence Section */}
+          <div className="space-y-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="isRecurring"
+                checked={isRecurring}
+                onCheckedChange={(checked) => setIsRecurring(!!checked)}
+              />
+              <Label htmlFor="isRecurring">Recurring Task</Label>
+            </div>
+
+            {isRecurring && (
+              <div className="space-y-4 pl-6">
+                <div className="space-y-2">
+                  <Label htmlFor="recurrenceFrequency">Frequency</Label>
+                  <Select
+                    value={recurrenceFrequency}
+                    onValueChange={(value) => 
+                      setRecurrenceFrequency(value as RecurrenceFrequency)
+                    }
+                  >
+                    <SelectTrigger id="recurrenceFrequency">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="yearly">Yearly</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="recurrenceInterval">
+                    Repeat Every
+                  </Label>
+                  <Input
+                    id="recurrenceInterval"
+                    type="number"
+                    min="1"
+                    value={recurrenceInterval}
+                    onChange={(e) => 
+                      setRecurrenceInterval(parseInt(e.target.value) || 1)
+                    }
+                    className={errors.recurrenceInterval ? 'border-destructive' : ''}
+                  />
+                  {errors.recurrenceInterval && (
+                    <p className="text-sm text-destructive">
+                      {errors.recurrenceInterval}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Submit Button */}
+          <div className="flex justify-end">
+            <Button type="submit" variant="default">
+              Create Task
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+--------------------------------------------------------------------------------
+<File: frontend/src/components/task/Recurrence.tsx>
+//src/components/task/Recurrence.ts
+
+import { format, addDays, addWeeks, addMonths, addYears } from 'date-fns';
+import { RecurrenceRule, CompletionEntry } from '@/utils/types';
+
+/**
+ * Calculate the next due date based on a recurrence rule
+ */
+export function calculateNextDueDate(
+  currentDueDate: string | undefined,
+  rule: RecurrenceRule
+): string {
+  // Use current due date or today as base
+  const baseDate = currentDueDate ? new Date(currentDueDate) : new Date();
+  
+  // Calculate next date based on frequency and interval
+  let nextDate: Date;
+  switch (rule.frequency) {
+    case 'daily':
+      nextDate = addDays(baseDate, rule.interval);
+      break;
+    case 'weekly':
+      nextDate = addWeeks(baseDate, rule.interval);
+      break;
+    case 'monthly':
+      nextDate = addMonths(baseDate, rule.interval);
+      break;
+    case 'yearly':
+      nextDate = addYears(baseDate, rule.interval);
+      break;
+    default:
+      throw new Error(`Unknown frequency: ${rule.frequency}`);
+  }
+
+  // Handle day constraints for weekly frequency
+  if (rule.frequency === 'weekly' && rule.daysOfWeek?.length) {
+    // Find the next allowed day of week
+    while (!rule.daysOfWeek.includes(nextDate.getDay())) {
+      nextDate = addDays(nextDate, 1);
+    }
+  }
+
+  // Handle month/day constraints for monthly frequency
+  if (rule.frequency === 'monthly' && rule.dayOfMonth) {
+    // Set to specified day of month, handling end of month cases
+    const maxDays = new Date(nextDate.getFullYear(), nextDate.getMonth() + 1, 0).getDate();
+    const targetDay = Math.min(rule.dayOfMonth, maxDays);
+    nextDate.setDate(targetDay);
+  }
+
+  return nextDate.toISOString();
+}
+
+/**
+ * Create a completion record for a task
+ */
+export function createCompletionRecord(
+  nextDueDate?: string,
+  notes?: string
+): CompletionEntry {
+  return {
+    completedAt: new Date().toISOString(),
+    nextDueDate,
+    completionNotes: notes
+  };
+}
+
+/**
+ * Format a date for display
+ */
+export function formatDate(date: string | Date): string {
+  return format(new Date(date), 'PPP');
+}
+
+/**
+ * Check if a task should be reset based on its recurrence rule
+ */
+export function shouldResetTask(
+  task: { recurrence?: { isRecurring: boolean; rule?: RecurrenceRule } }
+): boolean {
+  return Boolean(
+    task.recurrence?.isRecurring && 
+    task.recurrence.rule &&
+    task.recurrence.rule.frequency
+  );
+}
+--------------------------------------------------------------------------------
 <File: frontend/src/components/task/TaskCard.tsx>
-import React from 'react';
+
 import { Task } from '../../utils/types';
 
 interface TaskCardProps {
@@ -2148,7 +2681,7 @@ const TaskCard = ({ task }: TaskCardProps) => {
 export default TaskCard; 
 --------------------------------------------------------------------------------
 <File: frontend/src/components/task/TaskDetails.tsx>
-import React from 'react';
+
 import { Task } from '../../utils/types';
 import {
   Dialog,
@@ -2259,9 +2792,10 @@ const TaskDetails = ({ task, open, onOpenChange }: TaskDetailsProps) => {
 export default TaskDetails; 
 --------------------------------------------------------------------------------
 <File: frontend/src/components/task/TaskTable.tsx>
-// src/components/task/TaskTable.tsx
-import React from 'react';
-import { Task } from '../../utils/types';
+// File: src/components/task/TaskTable.tsx
+
+
+import { Task } from '../../utils/types'; 
 import {
   Table,
   TableBody,
@@ -2278,25 +2812,42 @@ interface TaskTableProps {
 
 const TaskTable = ({ tasks }: TaskTableProps) => {
   return (
-    <div className="w-full">
-      <Table>
+    <div className="w-full rounded-lg border bg-card shadow-sm">
+      {/* Table title area */}
+      <div className="px-4 py-3 border-b bg-muted/30 rounded-t-lg">
+        <h2 className="text-lg font-semibold text-foreground">Tasks</h2>
+      </div>
+
+      {/* Main table */}
+      <Table className="min-w-full text-sm">
         <TableHeader>
-          <TableRow>
-            <TableHead>Title</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Priority</TableHead>
-            <TableHead>Effort</TableHead>
-            <TableHead>Due Date</TableHead>
-            <TableHead>Recurrence</TableHead>
-            {/* Removed Created/Updated. We'll show Notes here */}
-            <TableHead>Notes</TableHead>
-            <TableHead>Actions</TableHead>
+          <TableRow className="bg-muted/20 text-muted-foreground">
+            <TableHead className="py-3 px-4 font-medium">Title</TableHead>
+            <TableHead className="py-3 px-4 font-medium">Status</TableHead>
+            <TableHead className="py-3 px-4 font-medium">Priority</TableHead>
+            <TableHead className="py-3 px-4 font-medium">Effort</TableHead>
+            <TableHead className="py-3 px-4 font-medium">Due Date</TableHead>
+            <TableHead className="py-3 px-4 font-medium">Recurrence</TableHead>
+            <TableHead className="py-3 px-4 font-medium">Notes</TableHead>
+            <TableHead className="py-3 px-4 font-medium text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
+
         <TableBody>
           {tasks.map((task) => (
             <TaskTableRow key={task.id} task={task} />
           ))}
+
+          {tasks.length === 0 && (
+            <TableRow>
+              <TableCell
+                colSpan={8}
+                className="p-4 text-center text-sm text-muted-foreground"
+              >
+                No tasks available.
+              </TableCell>
+            </TableRow>
+          )}
         </TableBody>
       </Table>
     </div>
@@ -2307,43 +2858,41 @@ export default TaskTable;
 
 --------------------------------------------------------------------------------
 <File: frontend/src/components/task/TaskTableRow.tsx>
+// src/components/task/TaskTableRow.tsx
 import { useState } from 'react';
 import { TableCell, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
 import { Eye, Trash2, Check } from 'lucide-react';
+import { useToast } from "@/components/ui/useToast";
 import TaskDetails from './TaskDetails';
-import { Task } from '../../utils/types';
+import { Task } from '@/utils/types';
 import {
   STATUS_DISPLAY,
   STATUS_COLORS,
   getPriorityDisplay,
   EFFORT_DISPLAY,
   getRecurrenceDisplay,
-} from '../../utils/displayMappings';
-import { syncChanges, store } from '../../state/syncEngine';
-import { updateTask, deleteTask } from '../../state/slices/taskSlice';
-
-// Import the CSS that controls our checkmark animation
-import '../animations/StatusCheckAnimation.css';
-
-interface TaskTableRowProps {
-  task: Task;
-}
+} from '@/utils/displayMappings';
+import { syncChanges, store } from '@/state/syncEngine';
+import { updateTask, deleteTask } from '@/state/slices/taskSlice';
+import { calculateNextDueDate, createCompletionRecord, shouldResetTask, formatDate } from './Recurrence';
+import '@/components/animations/animations.css';
 
 const STATUS_SEQUENCE = ['notStarted', 'workingOnIt', 'complete'] as const;
 const PRIORITY_SEQUENCE = [0, 20, 40, 60, 80];
 const EFFORT_SEQUENCE = [1, 2, 3, 4, 5];
 
+interface TaskTableRowProps {
+  task: Task;
+}
+
 const TaskTableRow = ({ task }: TaskTableRowProps) => {
+  const { toast } = useToast();
   const [showDetails, setShowDetails] = useState(false);
   const [animateCheck, setAnimateCheck] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
-  // Format date safely
-  const formatDate = (date: string | undefined) => {
-    if (!date) return '-';
-    return new Date(date).toLocaleDateString();
-  };
-
+  // Priority, Effort, Recurrence strings
   const priorityInfo = getPriorityDisplay(task.priority);
   const effortInfo = task.effort ? EFFORT_DISPLAY[task.effort] : null;
   const recurrenceLabel = getRecurrenceDisplay(
@@ -2352,31 +2901,88 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
     task.recurrence?.rule?.interval
   );
 
-  // Cycle status on click
+  // Handle marking a recurring task as complete
+  const handleRecurringComplete = () => {
+    if (!task.recurrence?.rule) return;
+
+    // Calculate next due date
+    const nextDueDate = calculateNextDueDate(task.dueDate, task.recurrence.rule);
+    
+    // Create completion record
+    const completionRecord = createCompletionRecord(nextDueDate);
+
+    // Show completion state briefly
+    store.dispatch(updateTask({
+      id: task.id,
+      changes: { status: 'complete' }
+    }));
+
+    // Trigger animations
+    setAnimateCheck(true);
+    setTimeout(() => setAnimateCheck(false), 1000);
+
+    // After a delay, reset the task
+    setTimeout(() => {
+      setIsResetting(true);
+
+      // Update task with new status, due date, and completion history
+      store.dispatch(updateTask({
+        id: task.id,
+        changes: {
+          status: 'notStarted',
+          dueDate: nextDueDate,
+          completionHistory: [...task.completionHistory, completionRecord]
+        }
+      }));
+
+      // Sync changes to backend
+      syncChanges('status', [{
+        type: 'task',
+        operation: 'update',
+        id: task.id,
+        data: {
+          status: 'notStarted',
+          dueDate: nextDueDate,
+          completionHistory: [...task.completionHistory, completionRecord]
+        }
+      }]);
+
+      // Show toast notification
+      toast({
+        title: "Task Reset",
+        description: `${task.title} will be due again on ${formatDate(nextDueDate)}`,
+      });
+
+      // Remove resetting state
+      setTimeout(() => setIsResetting(false), 300);
+    }, 1500);
+  };
+
+  // Handle status changes
   const handleStatusClick = () => {
     const currentIndex = STATUS_SEQUENCE.indexOf(task.status);
     const nextIndex = (currentIndex + 1) % STATUS_SEQUENCE.length;
     const nextStatus = STATUS_SEQUENCE[nextIndex];
 
-    // Update in Redux (optimistic UI)
-    store.dispatch(
-      updateTask({
-        id: task.id,
-        changes: { status: nextStatus },
-      })
-    );
+    // If completing a recurring task
+    if (nextStatus === 'complete' && shouldResetTask(task)) {
+      handleRecurringComplete();
+      return;
+    }
 
-    // Debounced sync to server
-    syncChanges('status', [
-      {
-        type: 'task',
-        operation: 'update',
-        id: task.id,
-        data: { status: nextStatus },
-      },
-    ]);
+    // Handle normal status change
+    store.dispatch(updateTask({
+      id: task.id,
+      changes: { status: nextStatus }
+    }));
 
-    // Trigger the check “pop” if newly “complete”
+    syncChanges('status', [{
+      type: 'task',
+      operation: 'update',
+      id: task.id,
+      data: { status: nextStatus }
+    }]);
+
     if (nextStatus === 'complete') {
       setAnimateCheck(true);
       setTimeout(() => setAnimateCheck(false), 1000);
@@ -2385,31 +2991,27 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
     }
   };
 
-  // Cycle priority on click
+  // Handle priority changes
   const handlePriorityClick = () => {
     const currentIndex = PRIORITY_SEQUENCE.indexOf(task.priority);
     const safeIndex = currentIndex >= 0 ? currentIndex : 0;
     const nextIndex = (safeIndex + 1) % PRIORITY_SEQUENCE.length;
     const nextPriority = PRIORITY_SEQUENCE[nextIndex];
 
-    store.dispatch(
-      updateTask({
-        id: task.id,
-        changes: { priority: nextPriority },
-      })
-    );
+    store.dispatch(updateTask({
+      id: task.id,
+      changes: { priority: nextPriority }
+    }));
 
-    syncChanges('priority', [
-      {
-        type: 'task',
-        operation: 'update',
-        id: task.id,
-        data: { priority: nextPriority },
-      },
-    ]);
+    syncChanges('priority', [{
+      type: 'task',
+      operation: 'update',
+      id: task.id,
+      data: { priority: nextPriority }
+    }]);
   };
 
-  // Cycle effort on click
+  // Handle effort changes
   const handleEffortClick = () => {
     const currentEffort = task.effort || 1;
     const currentIndex = EFFORT_SEQUENCE.indexOf(currentEffort);
@@ -2417,50 +3019,50 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
     const nextIndex = (safeIndex + 1) % EFFORT_SEQUENCE.length;
     const nextEffort = EFFORT_SEQUENCE[nextIndex];
 
-    store.dispatch(
-      updateTask({
-        id: task.id,
-        changes: { effort: nextEffort },
-      })
-    );
+    store.dispatch(updateTask({
+      id: task.id,
+      changes: { effort: nextEffort }
+    }));
 
-    // re-using 'priority' as the "changeType" here, or define a new one if you prefer
-    syncChanges('priority', [
-      {
-        type: 'task',
-        operation: 'update',
-        id: task.id,
-        data: { effort: nextEffort },
-      },
-    ]);
+    syncChanges('priority', [{
+      type: 'task',
+      operation: 'update',
+      id: task.id,
+      data: { effort: nextEffort }
+    }]);
   };
 
-  // Delete this task
+  // Delete task
   const handleDeleteTask = (id: string) => {
     store.dispatch(deleteTask(id));
-    syncChanges('status', [
-      {
-        type: 'task',
-        operation: 'delete',
-        id,
-      },
-    ]);
+    syncChanges('status', [{
+      type: 'task',
+      operation: 'delete',
+      id
+    }]);
   };
 
   return (
     <>
-      <TableRow>
+      <TableRow
+        className={[
+          'task-row hover:bg-muted/10 even:bg-muted/5 transition-colors',
+          isResetting ? 'task-resetting' : '',
+          task.status === 'complete' ? 'animate-completion' : '',
+        ].filter(Boolean).join(' ')}
+      >
         {/* TITLE */}
-        <TableCell>{task.title}</TableCell>
+        <TableCell className="px-4 py-2">
+          {task.title}
+        </TableCell>
 
         {/* STATUS BUBBLE */}
-        <TableCell>
+        <TableCell className="px-4 py-2">
           <button
             onClick={handleStatusClick}
             className={[
-              // Force a consistent bubble size: w-28/h-8 plus our custom class for the animation
               'inline-flex items-center justify-center w-28 h-8 px-2 py-1 rounded-full text-xs relative',
-              'status-bubble', // from StatusCheckAnimation.css
+              'status-bubble',
               STATUS_COLORS[task.status] || 'bg-gray-100 text-gray-800',
               animateCheck ? 'animate-check' : '',
             ].join(' ')}
@@ -2470,28 +3072,28 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
           </button>
         </TableCell>
 
-        {/* PRIORITY BUBBLE */}
-        <TableCell>
+        {/* PRIORITY CHIP */}
+        <TableCell className="px-4 py-2">
           <button
             onClick={handlePriorityClick}
             className={[
-              'inline-flex items-center justify-center w-28 h-8 px-2 py-1 rounded-full text-xs',
+              'inline-flex items-center justify-center w-24 h-8 px-2 py-1 rounded-full text-xs font-medium',
               priorityInfo.colorClass,
-              'cursor-pointer',
+              'cursor-pointer transition-transform hover:scale-105'
             ].join(' ')}
           >
             {priorityInfo.label}
           </button>
         </TableCell>
 
-        {/* EFFORT BUBBLE */}
-        <TableCell>
+        {/* EFFORT CHIP */}
+        <TableCell className="px-4 py-2">
           <button
             onClick={handleEffortClick}
             className={[
-              'inline-flex items-center justify-center w-28 h-8 px-2 py-1 rounded-full text-xs',
+              'inline-flex items-center justify-center w-20 h-8 px-2 py-1 rounded-full text-xs font-medium',
               effortInfo ? effortInfo.colorClass : 'bg-gray-100 text-gray-800',
-              'cursor-pointer',
+              'cursor-pointer transition-transform hover:scale-105'
             ].join(' ')}
           >
             {effortInfo ? effortInfo.label : 'N/A'}
@@ -2499,22 +3101,38 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
         </TableCell>
 
         {/* DUE DATE */}
-        <TableCell>{formatDate(task.dueDate)}</TableCell>
+        <TableCell className="px-4 py-2">
+          {task.dueDate ? formatDate(task.dueDate) : '-'}
+        </TableCell>
 
         {/* RECURRENCE */}
-        <TableCell>{recurrenceLabel}</TableCell>
+        <TableCell className="px-4 py-2">
+          {recurrenceLabel}
+        </TableCell>
 
         {/* NOTES */}
-        <TableCell>{task.notes?.trim() || '-'}</TableCell>
+        <TableCell className="px-4 py-2 whitespace-nowrap max-w-xs overflow-hidden overflow-ellipsis">
+          {task.notes?.trim() || '-'}
+        </TableCell>
 
         {/* ACTIONS */}
-        <TableCell className="flex gap-2">
-          <Button variant="default" size="sm" onClick={() => setShowDetails(true)}>
-            <Eye className="h-4 w-4" />
-          </Button>
-          <Button variant="default" size="sm" onClick={() => handleDeleteTask(task.id)}>
-            <Trash2 className="h-4 w-4" />
-          </Button>
+        <TableCell className="px-4 py-2 text-right">
+          <div className="flex items-center justify-end gap-2">
+            <Button 
+              variant="default" 
+              size="sm" 
+              onClick={() => setShowDetails(true)}
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => handleDeleteTask(task.id)}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
         </TableCell>
       </TableRow>
 
@@ -2531,7 +3149,6 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
 };
 
 export default TaskTableRow;
-
 --------------------------------------------------------------------------------
 <File: frontend/src/components/ui/button.tsx>
 import * as React from "react"
@@ -2544,7 +3161,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-transparent text-muted-foreground hover:text-foreground border border-input transition-colors",
+        default: "bg-transparent text-foreground hover:text-foreground border border-input transition-colors",
         destructive:
           "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
         outline:
@@ -2578,7 +3195,7 @@ export interface ButtonProps
   asChild?: boolean
 }
 
-export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
     return (
@@ -2592,11 +3209,88 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
 )
 Button.displayName = "Button"
 
+export { Button, buttonVariants }
+--------------------------------------------------------------------------------
+<File: frontend/src/components/ui/calendar.tsx>
+import * as React from "react"
+import { ChevronLeft, ChevronRight } from "lucide-react"
+import { DayPicker } from "react-day-picker"
+
+import { cn } from "../../utils/utils"
+import { buttonVariants } from "./button"
+
+export type CalendarProps = React.ComponentProps<typeof DayPicker>
+
+function Calendar({
+  className,
+  classNames,
+  showOutsideDays = true,
+  ...props
+}: CalendarProps) {
+  return (
+    <DayPicker
+      showOutsideDays={showOutsideDays}
+      className={cn("p-3", className)}
+      classNames={{
+        months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
+        month: "space-y-4",
+        caption: "flex justify-center pt-1 relative items-center",
+        caption_label: "text-sm font-medium",
+        nav: "space-x-1 flex items-center",
+        nav_button: cn(
+          buttonVariants({ variant: "outline" }),
+          "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100"
+        ),
+        nav_button_previous: "absolute left-1",
+        nav_button_next: "absolute right-1",
+        table: "w-full border-collapse space-y-1",
+        head_row: "flex",
+        head_cell:
+          "text-muted-foreground rounded-md w-8 font-normal text-[0.8rem]",
+        row: "flex w-full mt-2",
+        cell: cn(
+          "relative p-0 text-center text-sm focus-within:relative focus-within:z-20 [&:has([aria-selected])]:bg-accent [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected].day-range-end)]:rounded-r-md",
+          props.mode === "range"
+            ? "[&:has(>.day-range-end)]:rounded-r-md [&:has(>.day-range-start)]:rounded-l-md first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md"
+            : "[&:has([aria-selected])]:rounded-md"
+        ),
+        day: cn(
+          buttonVariants({ variant: "ghost" }),
+          "h-8 w-8 p-0 font-normal aria-selected:opacity-100"
+        ),
+        day_range_start: "day-range-start",
+        day_range_end: "day-range-end",
+        day_selected:
+          "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground",
+        day_today: "bg-accent text-accent-foreground",
+        day_outside:
+          "day-outside text-muted-foreground aria-selected:bg-accent/50 aria-selected:text-muted-foreground",
+        day_disabled: "text-muted-foreground opacity-50",
+        day_range_middle:
+          "aria-selected:bg-accent aria-selected:text-accent-foreground",
+        day_hidden: "invisible",
+        ...classNames,
+      }}
+      components={{
+        IconLeft: ({ className, ...props }) => (
+          <ChevronLeft className={cn("h-4 w-4", className)} {...props} />
+        ),
+        IconRight: ({ className, ...props }) => (
+          <ChevronRight className={cn("h-4 w-4", className)} {...props} />
+        ),
+      }}
+      {...props}
+    />
+  )
+}
+Calendar.displayName = "Calendar"
+
+export { Calendar }
 --------------------------------------------------------------------------------
 <File: frontend/src/components/ui/card.tsx>
 import * as React from "react"
 
-import { cn } from "@/lib/utils"
+import { cn } from "../../utils/utils"
 
 const Card = React.forwardRef<
   HTMLDivElement,
@@ -2677,7 +3371,7 @@ import * as React from "react"
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox"
 import { Check } from "lucide-react"
 
-import { cn } from "@/lib/utils"
+import { cn } from "../../utils/utils"
 
 const Checkbox = React.forwardRef<
   React.ElementRef<typeof CheckboxPrimitive.Root>,
@@ -2832,7 +3526,7 @@ export {
 <File: frontend/src/components/ui/input.tsx>
 import * as React from "react"
 
-import { cn } from "@/lib/utils"
+import { cn } from "../../utils/utils"
 
 const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
   ({ className, type, ...props }, ref) => {
@@ -2854,12 +3548,75 @@ Input.displayName = "Input"
 export { Input }
 
 --------------------------------------------------------------------------------
+<File: frontend/src/components/ui/label.tsx>
+import * as React from "react"
+import * as LabelPrimitive from "@radix-ui/react-label"
+import { cva, type VariantProps } from "class-variance-authority"
+
+import { cn } from "../../utils/utils"
+
+const labelVariants = cva(
+  "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+)
+
+const Label = React.forwardRef<
+  React.ElementRef<typeof LabelPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root> &
+    VariantProps<typeof labelVariants>
+>(({ className, ...props }, ref) => (
+  <LabelPrimitive.Root
+    ref={ref}
+    className={cn(labelVariants(), className)}
+    {...props}
+  />
+))
+Label.displayName = LabelPrimitive.Root.displayName
+
+export { Label }
+
+--------------------------------------------------------------------------------
+<File: frontend/src/components/ui/popover.tsx>
+"use client"
+
+import * as React from "react"
+import * as PopoverPrimitive from "@radix-ui/react-popover"
+
+import { cn } from "../../utils/utils"
+
+const Popover = PopoverPrimitive.Root
+
+const PopoverTrigger = PopoverPrimitive.Trigger
+
+const PopoverAnchor = PopoverPrimitive.Anchor
+
+const PopoverContent = React.forwardRef<
+  React.ElementRef<typeof PopoverPrimitive.Content>,
+  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
+>(({ className, align = "center", sideOffset = 4, ...props }, ref) => (
+  <PopoverPrimitive.Portal>
+    <PopoverPrimitive.Content
+      ref={ref}
+      align={align}
+      sideOffset={sideOffset}
+      className={cn(
+        "z-50 w-72 rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2",
+        className
+      )}
+      {...props}
+    />
+  </PopoverPrimitive.Portal>
+))
+PopoverContent.displayName = PopoverPrimitive.Content.displayName
+
+export { Popover, PopoverTrigger, PopoverContent, PopoverAnchor }
+
+--------------------------------------------------------------------------------
 <File: frontend/src/components/ui/select.tsx>
 import * as React from "react"
 import * as SelectPrimitive from "@radix-ui/react-select"
 import { Check, ChevronDown, ChevronUp } from "lucide-react"
 
-import { cn } from "@/lib/utils"
+import { cn } from "../../utils/utils"
 
 const Select = SelectPrimitive.Root
 
@@ -3189,6 +3946,558 @@ export {
 }
 
 --------------------------------------------------------------------------------
+<File: frontend/src/components/ui/toast.tsx>
+import * as React from "react"
+import * as ToastPrimitives from "@radix-ui/react-toast"
+import { cva, type VariantProps } from "class-variance-authority"
+import { X } from "lucide-react"
+
+import { cn } from "../../utils/utils"
+
+const ToastProvider = ToastPrimitives.Provider
+
+const ToastViewport = React.forwardRef<
+  React.ElementRef<typeof ToastPrimitives.Viewport>,
+  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Viewport>
+>(({ className, ...props }, ref) => (
+  <ToastPrimitives.Viewport
+    ref={ref}
+    className={cn(
+      "fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]",
+      className
+    )}
+    {...props}
+  />
+))
+ToastViewport.displayName = ToastPrimitives.Viewport.displayName
+
+const toastVariants = cva(
+  "group pointer-events-auto relative flex w-full items-center justify-between space-x-2 overflow-hidden rounded-md border p-4 pr-6 shadow-lg transition-all data-[swipe=cancel]:translate-x-0 data-[swipe=end]:translate-x-[var(--radix-toast-swipe-end-x)] data-[swipe=move]:translate-x-[var(--radix-toast-swipe-move-x)] data-[swipe=move]:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-top-full data-[state=open]:sm:slide-in-from-bottom-full",
+  {
+    variants: {
+      variant: {
+        default: "border bg-background text-foreground",
+        destructive:
+          "destructive group border-destructive bg-destructive text-destructive-foreground",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+    },
+  }
+)
+
+const Toast = React.forwardRef<
+  React.ElementRef<typeof ToastPrimitives.Root>,
+  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Root> &
+    VariantProps<typeof toastVariants>
+>(({ className, variant, ...props }, ref) => {
+  return (
+    <ToastPrimitives.Root
+      ref={ref}
+      className={cn(toastVariants({ variant }), className)}
+      {...props}
+    />
+  )
+})
+Toast.displayName = ToastPrimitives.Root.displayName
+
+const ToastAction = React.forwardRef<
+  React.ElementRef<typeof ToastPrimitives.Action>,
+  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Action>
+>(({ className, ...props }, ref) => (
+  <ToastPrimitives.Action
+    ref={ref}
+    className={cn(
+      "inline-flex h-8 shrink-0 items-center justify-center rounded-md border bg-transparent px-3 text-sm font-medium transition-colors hover:bg-secondary focus:outline-none focus:ring-1 focus:ring-ring disabled:pointer-events-none disabled:opacity-50 group-[.destructive]:border-muted/40 group-[.destructive]:hover:border-destructive/30 group-[.destructive]:hover:bg-destructive group-[.destructive]:hover:text-destructive-foreground group-[.destructive]:focus:ring-destructive",
+      className
+    )}
+    {...props}
+  />
+))
+ToastAction.displayName = ToastPrimitives.Action.displayName
+
+const ToastClose = React.forwardRef<
+  React.ElementRef<typeof ToastPrimitives.Close>,
+  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Close>
+>(({ className, ...props }, ref) => (
+  <ToastPrimitives.Close
+    ref={ref}
+    className={cn(
+      "absolute right-1 top-1 rounded-md p-1 text-foreground/50 opacity-0 transition-opacity hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-1 group-hover:opacity-100 group-[.destructive]:text-red-300 group-[.destructive]:hover:text-red-50 group-[.destructive]:focus:ring-red-400 group-[.destructive]:focus:ring-offset-red-600",
+      className
+    )}
+    toast-close=""
+    {...props}
+  >
+    <X className="h-4 w-4" />
+  </ToastPrimitives.Close>
+))
+ToastClose.displayName = ToastPrimitives.Close.displayName
+
+const ToastTitle = React.forwardRef<
+  React.ElementRef<typeof ToastPrimitives.Title>,
+  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Title>
+>(({ className, ...props }, ref) => (
+  <ToastPrimitives.Title
+    ref={ref}
+    className={cn("text-sm font-semibold [&+div]:text-xs", className)}
+    {...props}
+  />
+))
+ToastTitle.displayName = ToastPrimitives.Title.displayName
+
+const ToastDescription = React.forwardRef<
+  React.ElementRef<typeof ToastPrimitives.Description>,
+  React.ComponentPropsWithoutRef<typeof ToastPrimitives.Description>
+>(({ className, ...props }, ref) => (
+  <ToastPrimitives.Description
+    ref={ref}
+    className={cn("text-sm opacity-90", className)}
+    {...props}
+  />
+))
+ToastDescription.displayName = ToastPrimitives.Description.displayName
+
+type ToastProps = React.ComponentPropsWithoutRef<typeof Toast>
+
+type ToastActionElement = React.ReactElement<typeof ToastAction>
+
+export {
+  type ToastProps,
+  type ToastActionElement,
+  ToastProvider,
+  ToastViewport,
+  Toast,
+  ToastTitle,
+  ToastDescription,
+  ToastClose,
+  ToastAction,
+}
+
+--------------------------------------------------------------------------------
+<File: frontend/src/components/ui/toaster.tsx>
+import { useToast } from "@/hooks/use-toast"
+import {
+  Toast,
+  ToastClose,
+  ToastDescription,
+  ToastProvider,
+  ToastTitle,
+  ToastViewport,
+} from "@/components/ui/toast"
+
+export function Toaster() {
+  const { toasts } = useToast()
+
+  return (
+    <ToastProvider>
+      {toasts.map(function ({ id, title, description, action, ...props }) {
+        return (
+          <Toast key={id} {...props}>
+            <div className="grid gap-1">
+              {title && <ToastTitle>{title}</ToastTitle>}
+              {description && (
+                <ToastDescription>{description}</ToastDescription>
+              )}
+            </div>
+            {action}
+            <ToastClose />
+          </Toast>
+        )
+      })}
+      <ToastViewport />
+    </ToastProvider>
+  )
+}
+
+--------------------------------------------------------------------------------
+<File: frontend/src/components/ui/useToast.tsx>
+// src/components/ui/use-toast.ts
+import * as React from "react"
+import { type ToastActionElement, type ToastProps } from "@/components/ui/toast"
+
+const TOAST_LIMIT = 1
+const TOAST_REMOVE_DELAY = 3000
+
+type ToasterToast = ToastProps & {
+  id: string
+  title?: React.ReactNode
+  description?: React.ReactNode
+  action?: ToastActionElement
+}
+
+const actionTypes = {
+  ADD_TOAST: "ADD_TOAST",
+  UPDATE_TOAST: "UPDATE_TOAST",
+  DISMISS_TOAST: "DISMISS_TOAST",
+  REMOVE_TOAST: "REMOVE_TOAST",
+} as const
+
+let count = 0
+
+function genId() {
+  count = (count + 1) % Number.MAX_VALUE
+  return count.toString()
+}
+
+type ActionType = typeof actionTypes
+
+type Action =
+  | {
+      type: ActionType["ADD_TOAST"]
+      toast: ToasterToast
+    }
+  | {
+      type: ActionType["UPDATE_TOAST"]
+      toast: Partial<ToasterToast>
+    }
+  | {
+      type: ActionType["DISMISS_TOAST"]
+      toastId?: ToasterToast["id"]
+    }
+  | {
+      type: ActionType["REMOVE_TOAST"]
+      toastId?: ToasterToast["id"]
+    }
+
+interface State {
+  toasts: ToasterToast[]
+}
+
+const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
+
+const addToRemoveQueue = (toastId: string) => {
+  if (toastTimeouts.has(toastId)) {
+    return
+  }
+
+  const timeout = setTimeout(() => {
+    toastTimeouts.delete(toastId)
+    dispatch({
+      type: "REMOVE_TOAST",
+      toastId: toastId,
+    })
+  }, TOAST_REMOVE_DELAY)
+
+  toastTimeouts.set(toastId, timeout)
+}
+
+export const reducer = (state: State, action: Action): State => {
+  switch (action.type) {
+    case "ADD_TOAST":
+      return {
+        ...state,
+        toasts: [action.toast, ...state.toasts].slice(0, TOAST_LIMIT),
+      }
+
+    case "UPDATE_TOAST":
+      return {
+        ...state,
+        toasts: state.toasts.map((t) =>
+          t.id === action.toast.id ? { ...t, ...action.toast } : t
+        ),
+      }
+
+    case "DISMISS_TOAST": {
+      const { toastId } = action
+
+      if (toastId) {
+        addToRemoveQueue(toastId)
+      } else {
+        state.toasts.forEach((toast) => {
+          addToRemoveQueue(toast.id)
+        })
+      }
+
+      return {
+        ...state,
+        toasts: state.toasts.map((t) =>
+          t.id === toastId || toastId === undefined
+            ? {
+                ...t,
+                open: false,
+              }
+            : t
+        ),
+      }
+    }
+
+    case "REMOVE_TOAST":
+      if (action.toastId === undefined) {
+        return {
+          ...state,
+          toasts: [],
+        }
+      }
+      return {
+        ...state,
+        toasts: state.toasts.filter((t) => t.id !== action.toastId),
+      }
+  }
+}
+
+const listeners: Array<(state: State) => void> = []
+
+let memoryState: State = { toasts: [] }
+
+function dispatch(action: Action) {
+  memoryState = reducer(memoryState, action)
+  listeners.forEach((listener) => {
+    listener(memoryState)
+  })
+}
+
+interface Toast extends Omit<ToasterToast, "id"> {}
+
+function toast({ ...props }: Toast) {
+  const id = genId()
+
+  const update = (props: ToasterToast) =>
+    dispatch({
+      type: "UPDATE_TOAST",
+      toast: { ...props, id },
+    })
+  const dismiss = () => dispatch({ type: "DISMISS_TOAST", toastId: id })
+
+  dispatch({
+    type: "ADD_TOAST",
+    toast: {
+      ...props,
+      id,
+      open: true,
+      onOpenChange: (open) => {
+        if (!open) dismiss()
+      },
+    },
+  })
+
+  return {
+    id: id,
+    dismiss,
+    update,
+  }
+}
+
+function useToast() {
+  const [state, setState] = React.useState<State>(memoryState)
+
+  React.useEffect(() => {
+    listeners.push(setState)
+    return () => {
+      const index = listeners.indexOf(setState)
+      if (index > -1) {
+        listeners.splice(index, 1)
+      }
+    }
+  }, [state])
+
+  return {
+    ...state,
+    toast,
+    dismiss: (toastId?: string) => dispatch({ type: "DISMISS_TOAST", toastId }),
+  }
+}
+
+export { useToast, toast }
+--------------------------------------------------------------------------------
+<File: frontend/src/hooks/use-toast.ts>
+"use client"
+
+// Inspired by react-hot-toast library
+import * as React from "react"
+
+import type {
+  ToastActionElement,
+  ToastProps,
+} from "@/components/ui/toast"
+
+const TOAST_LIMIT = 1
+const TOAST_REMOVE_DELAY = 1000000
+
+type ToasterToast = ToastProps & {
+  id: string
+  title?: React.ReactNode
+  description?: React.ReactNode
+  action?: ToastActionElement
+}
+
+const actionTypes = {
+  ADD_TOAST: "ADD_TOAST",
+  UPDATE_TOAST: "UPDATE_TOAST",
+  DISMISS_TOAST: "DISMISS_TOAST",
+  REMOVE_TOAST: "REMOVE_TOAST",
+} as const
+
+let count = 0
+
+function genId() {
+  count = (count + 1) % Number.MAX_SAFE_INTEGER
+  return count.toString()
+}
+
+type ActionType = typeof actionTypes
+
+type Action =
+  | {
+      type: ActionType["ADD_TOAST"]
+      toast: ToasterToast
+    }
+  | {
+      type: ActionType["UPDATE_TOAST"]
+      toast: Partial<ToasterToast>
+    }
+  | {
+      type: ActionType["DISMISS_TOAST"]
+      toastId?: ToasterToast["id"]
+    }
+  | {
+      type: ActionType["REMOVE_TOAST"]
+      toastId?: ToasterToast["id"]
+    }
+
+interface State {
+  toasts: ToasterToast[]
+}
+
+const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
+
+const addToRemoveQueue = (toastId: string) => {
+  if (toastTimeouts.has(toastId)) {
+    return
+  }
+
+  const timeout = setTimeout(() => {
+    toastTimeouts.delete(toastId)
+    dispatch({
+      type: "REMOVE_TOAST",
+      toastId: toastId,
+    })
+  }, TOAST_REMOVE_DELAY)
+
+  toastTimeouts.set(toastId, timeout)
+}
+
+export const reducer = (state: State, action: Action): State => {
+  switch (action.type) {
+    case "ADD_TOAST":
+      return {
+        ...state,
+        toasts: [action.toast, ...state.toasts].slice(0, TOAST_LIMIT),
+      }
+
+    case "UPDATE_TOAST":
+      return {
+        ...state,
+        toasts: state.toasts.map((t) =>
+          t.id === action.toast.id ? { ...t, ...action.toast } : t
+        ),
+      }
+
+    case "DISMISS_TOAST": {
+      const { toastId } = action
+
+      // ! Side effects ! - This could be extracted into a dismissToast() action,
+      // but I'll keep it here for simplicity
+      if (toastId) {
+        addToRemoveQueue(toastId)
+      } else {
+        state.toasts.forEach((toast) => {
+          addToRemoveQueue(toast.id)
+        })
+      }
+
+      return {
+        ...state,
+        toasts: state.toasts.map((t) =>
+          t.id === toastId || toastId === undefined
+            ? {
+                ...t,
+                open: false,
+              }
+            : t
+        ),
+      }
+    }
+    case "REMOVE_TOAST":
+      if (action.toastId === undefined) {
+        return {
+          ...state,
+          toasts: [],
+        }
+      }
+      return {
+        ...state,
+        toasts: state.toasts.filter((t) => t.id !== action.toastId),
+      }
+  }
+}
+
+const listeners: Array<(state: State) => void> = []
+
+let memoryState: State = { toasts: [] }
+
+function dispatch(action: Action) {
+  memoryState = reducer(memoryState, action)
+  listeners.forEach((listener) => {
+    listener(memoryState)
+  })
+}
+
+type Toast = Omit<ToasterToast, "id">
+
+function toast({ ...props }: Toast) {
+  const id = genId()
+
+  const update = (props: ToasterToast) =>
+    dispatch({
+      type: "UPDATE_TOAST",
+      toast: { ...props, id },
+    })
+  const dismiss = () => dispatch({ type: "DISMISS_TOAST", toastId: id })
+
+  dispatch({
+    type: "ADD_TOAST",
+    toast: {
+      ...props,
+      id,
+      open: true,
+      onOpenChange: (open) => {
+        if (!open) dismiss()
+      },
+    },
+  })
+
+  return {
+    id: id,
+    dismiss,
+    update,
+  }
+}
+
+function useToast() {
+  const [state, setState] = React.useState<State>(memoryState)
+
+  React.useEffect(() => {
+    listeners.push(setState)
+    return () => {
+      const index = listeners.indexOf(setState)
+      if (index > -1) {
+        listeners.splice(index, 1)
+      }
+    }
+  }, [state])
+
+  return {
+    ...state,
+    toast,
+    dismiss: (toastId?: string) => dispatch({ type: "DISMISS_TOAST", toastId }),
+  }
+}
+
+export { useToast, toast }
+
+--------------------------------------------------------------------------------
 <File: frontend/src/main.tsx>
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -3217,27 +4526,43 @@ const HomePage = () => {
 export default HomePage; 
 --------------------------------------------------------------------------------
 <File: frontend/src/pages/MasterListPage.tsx>
-import React from 'react';
+import React, { useState } from 'react';
 import { useSelector } from 'react-redux';
+import { Plus } from 'lucide-react';
 import { RootState } from '../state/syncEngine';
 import TaskTable from '../components/task/TaskTable';
+import { AddTaskDialog } from '../components/task/AddTaskDialog';
+import { Button } from '../components/ui/button';
 import { Task } from '../utils/types';
 
 const MasterListPage = () => {
+  const [showAddDialog, setShowAddDialog] = useState(false);
   const tasksObj = useSelector((state: RootState) => state.tasks.items);
   const tasksArray: Task[] = Object.values(tasksObj);
 
   return (
-    <div className="w-full">
-      <h1 className="text-2xl font-bold mb-4">Master List</h1>
+    <div className="w-full space-y-4">
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold">Master List</h1>
+        <Button onClick={() => setShowAddDialog(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          New Task
+        </Button>
+      </div>
+
       <div className="rounded-md border w-full">
         <TaskTable tasks={tasksArray} />
       </div>
+
+      <AddTaskDialog 
+        open={showAddDialog}
+        onOpenChange={setShowAddDialog}
+      />
     </div>
   );
 };
 
-export default MasterListPage; 
+export default MasterListPage;
 --------------------------------------------------------------------------------
 <File: frontend/src/pages/WeeklyPlanPage.tsx>
 import React from 'react';
@@ -3662,130 +4987,71 @@ export const syncChanges = (
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-:root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
-}
-
-body {
-  margin: 0;
-  min-width: 320px;
-  min-height: 100vh;
-}
-
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
-
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
-}
-
+ 
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 224 71.4% 4.1%;
+    --foreground: 222.2 84% 4.9%;
+
     --card: 0 0% 100%;
-    --card-foreground: 224 71.4% 4.1%;
+    --card-foreground: 222.2 84% 4.9%;
+ 
     --popover: 0 0% 100%;
-    --popover-foreground: 224 71.4% 4.1%;
-    --primary: 220.9 39.3% 11%;
-    --primary-foreground: 210 20% 98%;
-    --secondary: 220 14.3% 95.9%;
-    --secondary-foreground: 220.9 39.3% 11%;
-    --muted: 220 14.3% 95.9%;
-    --muted-foreground: 220 8.9% 46.1%;
-    --accent: 220 14.3% 95.9%;
-    --accent-foreground: 220.9 39.3% 11%;
+    --popover-foreground: 222.2 84% 4.9%;
+ 
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+ 
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+ 
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+ 
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+ 
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 20% 98%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 224 71.4% 4.1%;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+ 
     --radius: 0.5rem;
   }
+ 
   .dark {
-    --background: 224 71.4% 4.1%;
-    --foreground: 210 20% 98%;
-    --card: 224 71.4% 4.1%;
-    --card-foreground: 210 20% 98%;
-    --popover: 224 71.4% 4.1%;
-    --popover-foreground: 210 20% 98%;
-    --primary: 210 20% 98%;
-    --primary-foreground: 220.9 39.3% 11%;
-    --secondary: 215 27.9% 16.9%;
-    --secondary-foreground: 210 20% 98%;
-    --muted: 215 27.9% 16.9%;
-    --muted-foreground: 217.9 10.6% 64.9%;
-    --accent: 215 27.9% 16.9%;
-    --accent-foreground: 210 20% 98%;
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+ 
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+ 
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+ 
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+ 
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+ 
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+ 
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+ 
     --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 20% 98%;
-    --border: 215 27.9% 16.9%;
-    --input: 215 27.9% 16.9%;
-    --ring: 216 12.2% 83.9%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    --destructive-foreground: 210 40% 98%;
+ 
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
   }
 }
-
+ 
 @layer base {
   * {
     @apply border-border;
@@ -3794,7 +5060,6 @@ button:focus-visible {
     @apply bg-background text-foreground;
   }
 }
-
 --------------------------------------------------------------------------------
 <File: frontend/src/utils/api.ts>
 import { Task, UUID } from './types';
@@ -3896,10 +5161,10 @@ class ApiClient {
 export const api = new ApiClient(); 
 --------------------------------------------------------------------------------
 <File: frontend/src/utils/displayMappings.ts>
-// src/utils/displayMappings.ts
+// File: src/utils/displayMappings.ts
 
 /**
- * Status
+ * STATUS_DISPLAY - The user-facing text for each status
  */
 export const STATUS_DISPLAY: Record<string, string> = {
     notStarted: 'Not Started',
@@ -3908,53 +5173,51 @@ export const STATUS_DISPLAY: Record<string, string> = {
   };
   
   /**
-   * Status color classes
-   * Gray => notStarted
-   * Yellow => workingOnIt
-   * Green => complete
+   * STATUS_COLORS - Pastel backgrounds + darker text
    */
   export const STATUS_COLORS: Record<string, string> = {
-    notStarted: 'bg-gray-300 text-gray-800',   // a subdued gray
-    workingOnIt: 'bg-yellow-400 text-gray-800', // a medium yellow
-    complete: 'bg-green-500 text-white',        // a strong green
+    notStarted: 'bg-gray-100 text-gray-800',
+    workingOnIt: 'bg-orange-100 text-orange-800',
+    complete: 'bg-green-100 text-green-800',
   };
   
   /**
-   * Priority Ranges
-   * (Unchanged, unless you want to tweak them)
+   * getPriorityDisplay - Return { label, colorClass } for each priority numeric range.
+   * Example ranges:
+   *   80+ -> Very High (bg-red-100 text-red-800)
+   *   60+ -> High      (bg-pink-100 text-pink-800)
+   *   40+ -> Medium    (bg-yellow-100 text-yellow-800)
+   *   20+ -> Low       (bg-green-100 text-green-800)
+   *   <20 -> Very Low  (bg-teal-100 text-teal-800)
    */
-  export const priorityRanges = [
-    { min: 80, label: 'Very High', colorClass: 'bg-red-100 text-red-800' },
-    { min: 60, label: 'High',     colorClass: 'bg-orange-100 text-orange-800' },
-    { min: 40, label: 'Medium',   colorClass: 'bg-yellow-100 text-yellow-800' },
-    { min: 20, label: 'Low',      colorClass: 'bg-green-100 text-green-800' },
-    { min: 0,  label: 'Very Low', colorClass: 'bg-green-50 text-green-800' },
-  ];
-  
-  export function getPriorityDisplay(priority: number): {
-    label: string;
-    colorClass: string;
-  } {
-    const found = priorityRanges.find((r) => priority >= r.min);
-    return found
-      ? { label: found.label, colorClass: found.colorClass }
-      : { label: 'Unknown', colorClass: 'bg-gray-100 text-gray-800' };
+  export function getPriorityDisplay(priority: number) {
+    if (priority >= 80) {
+      return { label: 'Very High', colorClass: 'bg-red-100 text-red-800' };
+    } else if (priority >= 60) {
+      return { label: 'High', colorClass: 'bg-pink-100 text-pink-800' };
+    } else if (priority >= 40) {
+      return { label: 'Medium', colorClass: 'bg-yellow-100 text-yellow-800' };
+    } else if (priority >= 20) {
+      return { label: 'Low', colorClass: 'bg-green-100 text-green-800' };
+    } else {
+      return { label: 'Very Low', colorClass: 'bg-teal-100 text-teal-800' };
+    }
   }
   
   /**
-   * Effort
-   * (Keeping as-is, unless you want to also change these)
+   * EFFORT_DISPLAY - Pastel scale from 1..5
    */
   export const EFFORT_DISPLAY: Record<number, { label: string; colorClass: string }> = {
-    1: { label: 'Very Low',  colorClass: 'bg-gray-100 text-gray-800' },
-    2: { label: 'Low',       colorClass: 'bg-gray-200 text-gray-800' },
-    3: { label: 'Medium',    colorClass: 'bg-gray-300 text-gray-800' },
-    4: { label: 'High',      colorClass: 'bg-gray-400 text-gray-800' },
-    5: { label: 'Very High', colorClass: 'bg-gray-500 text-white' },
+    1: { label: 'Very Low',  colorClass: 'bg-purple-50  text-purple-600' },
+    2: { label: 'Low',       colorClass: 'bg-purple-100 text-purple-700' },
+    3: { label: 'Medium',    colorClass: 'bg-purple-200 text-purple-800' },
+    4: { label: 'High',      colorClass: 'bg-purple-300 text-purple-900' },
+    5: { label: 'Very High', colorClass: 'bg-purple-400 text-white'      },
   };
   
   /**
-   * Recurrence display
+   * getRecurrenceDisplay - Example function to produce user-friendly text
+   * (No color classes here—just returns a string.)
    */
   export function getRecurrenceDisplay(
     isRecurring: boolean,
@@ -3964,11 +5227,11 @@ export const STATUS_DISPLAY: Record<string, string> = {
     if (!isRecurring) return 'None';
     if (!frequency) return 'Recurring (?)';
   
-    const freqLabel = frequency[0].toUpperCase() + frequency.slice(1);
+    // e.g., "Every 2 weekly," "Weekly," etc.
     if (interval && interval > 1) {
-      return `Every ${interval} ${freqLabel}s`;
+      return `Every ${interval} ${frequency}`;
     }
-    return freqLabel;
+    return frequency[0].toUpperCase() + frequency.slice(1); // 'Daily', 'Weekly', etc.
   }
   
 --------------------------------------------------------------------------------
@@ -4064,77 +5327,78 @@ export function cn(...inputs: ClassValue[]) {
 <File: frontend/tailwind.config.js>
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: ["class"],
-  content: [
-    './index.html',
-    './src/**/*.{js,ts,jsx,tsx}',
-  ],
-  theme: {
-  	extend: {
-  		colors: {
-  			primary: {
-  				DEFAULT: 'hsl(var(--primary))',
-  				foreground: 'hsl(var(--primary-foreground))'
-  			},
-  			secondary: {
-  				DEFAULT: 'hsl(var(--secondary))',
-  				foreground: 'hsl(var(--secondary-foreground))'
-  			},
-  			accent: {
-  				DEFAULT: 'hsl(var(--accent))',
-  				foreground: 'hsl(var(--accent-foreground))'
-  			},
-  			background: 'hsl(var(--background))',
-  			foreground: 'hsl(var(--foreground))',
-  			card: {
-  				DEFAULT: 'hsl(var(--card))',
-  				foreground: 'hsl(var(--card-foreground))'
-  			},
-  			popover: {
-  				DEFAULT: 'hsl(var(--popover))',
-  				foreground: 'hsl(var(--popover-foreground))'
-  			},
-  			muted: {
-  				DEFAULT: 'hsl(var(--muted))',
-  				foreground: 'hsl(var(--muted-foreground))'
-  			},
-  			destructive: {
-  				DEFAULT: 'hsl(var(--destructive))',
-  				foreground: 'hsl(var(--destructive-foreground))'
-  			},
-  			border: 'hsl(var(--border))',
-  			input: 'hsl(var(--input))',
-  			ring: 'hsl(var(--ring))',
-  			chart: {
-  				'1': 'hsl(var(--chart-1))',
-  				'2': 'hsl(var(--chart-2))',
-  				'3': 'hsl(var(--chart-3))',
-  				'4': 'hsl(var(--chart-4))',
-  				'5': 'hsl(var(--chart-5))'
-  			},
-  			grayButton: {
-  				DEFAULT: '#9CA3AF',
-  				hover: '#6B7280',
-  				foreground: '#ffffff'
-  			}
-  		},
-  		fontFamily: {
-  			sans: [
-  				'Inter',
-  				'sans-serif'
-  			]
-  		},
-  		borderRadius: {
-  			lg: 'var(--radius)',
-  			md: 'calc(var(--radius) - 2px)',
-  			sm: 'calc(var(--radius) - 4px)'
-  		}
-  	}
-  },
-  plugins: [require("tailwindcss-animate")],
-}
-
-
+	darkMode: ["class"],
+	content: [
+	  './index.html',
+	  './src/**/*.{js,ts,jsx,tsx}',
+	],
+	theme: {
+	  container: {
+		center: true,
+		padding: "2rem",
+		screens: {
+		  "2xl": "1400px",
+		},
+	  },
+	  extend: {
+		colors: {
+		  border: "hsl(var(--border))",
+		  input: "hsl(var(--input))",
+		  ring: "hsl(var(--ring))",
+		  background: "hsl(var(--background))",
+		  foreground: "hsl(var(--foreground))",
+		  primary: {
+			DEFAULT: "hsl(var(--primary))",
+			foreground: "hsl(var(--primary-foreground))",
+		  },
+		  secondary: {
+			DEFAULT: "hsl(var(--secondary))",
+			foreground: "hsl(var(--secondary-foreground))",
+		  },
+		  destructive: {
+			DEFAULT: "hsl(var(--destructive))",
+			foreground: "hsl(var(--destructive-foreground))",
+		  },
+		  muted: {
+			DEFAULT: "hsl(var(--muted))",
+			foreground: "hsl(var(--muted-foreground))",
+		  },
+		  accent: {
+			DEFAULT: "hsl(var(--accent))",
+			foreground: "hsl(var(--accent-foreground))",
+		  },
+		  popover: {
+			DEFAULT: "hsl(var(--popover))",
+			foreground: "hsl(var(--popover-foreground))",
+		  },
+		  card: {
+			DEFAULT: "hsl(var(--card))",
+			foreground: "hsl(var(--card-foreground))",
+		  },
+		},
+		borderRadius: {
+		  lg: "var(--radius)",
+		  md: "calc(var(--radius) - 2px)",
+		  sm: "calc(var(--radius) - 4px)",
+		},
+		keyframes: {
+		  "accordion-down": {
+			from: { height: "0" },
+			to: { height: "var(--radix-accordion-content-height)" },
+		  },
+		  "accordion-up": {
+			from: { height: "var(--radix-accordion-content-height)" },
+			to: { height: "0" },
+		  },
+		},
+		animation: {
+		  "accordion-down": "accordion-down 0.2s ease-out",
+		  "accordion-up": "accordion-up 0.2s ease-out",
+		},
+	  },
+	},
+	plugins: ["tailwindcss-animate"],
+  }
 --------------------------------------------------------------------------------
 <File: frontend/tsconfig.app.json>
 {

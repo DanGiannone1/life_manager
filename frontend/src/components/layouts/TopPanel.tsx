@@ -1,5 +1,4 @@
 import { useSelector } from 'react-redux';
-import { Link } from 'react-router-dom';
 import { Check, Loader2, AlertCircle } from 'lucide-react';
 import { RootState } from '../../state/syncEngine';
 import { Button } from '../ui/button';
@@ -41,12 +40,7 @@ export function TopPanel() {
     return (
         <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur">
             <div className="mx-8">
-                <div className="flex h-14 items-center justify-between">
-                    {/* App Logo/Title */}
-                    <Link to="/" className="flex items-center">
-                        <span className="text-xl font-bold">Life Manager</span>
-                    </Link>
-
+                <div className="flex h-14 items-center justify-end">
                     {/* Right Side Controls */}
                     <div className="flex items-center gap-6">
                         {/* Sync Status */}
@@ -58,7 +52,6 @@ export function TopPanel() {
                         <Button
                             variant="default"
                             size="sm"
-                            
                             aria-label="Settings (coming soon)"
                         >
                             Settings
@@ -68,7 +61,6 @@ export function TopPanel() {
                         <Button
                             variant="default"
                             size="sm"
-                            
                             aria-label="Login (coming soon)"
                         >
                             Login

@@ -18,12 +18,15 @@ export const Sidebar = ({ isCollapsed, onCollapsedChange }: SidebarProps) => {
   return (
     <div
       className={cn(
-        'h-screen bg-card border-r transition-all duration-300',
+        'bg-card border-r transition-all duration-300',
         isCollapsed ? 'w-16' : 'w-64'
       )}
     >
       <div className="flex flex-col h-full">
-        <div className="p-4 flex justify-end">
+        <div className="p-4 flex items-center justify-between">
+          {!isCollapsed && (
+            <span className="text-xl font-bold">Life Manager</span>
+          )}
           <Button
             variant="default"
             size="icon"

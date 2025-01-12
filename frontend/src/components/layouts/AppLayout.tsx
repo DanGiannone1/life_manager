@@ -13,18 +13,16 @@ export function AppLayout() {
   }, []);
 
   return (
-    <div className="flex flex-col min-h-screen"> 
-      {/* Top Panel at the top */}
-      <TopPanel />
+    <div className="flex min-h-screen">
+      {/* Sidebar */}
+      <Sidebar 
+        isCollapsed={isCollapsed} 
+        onCollapsedChange={setIsCollapsed} 
+      />
 
-      {/* Main area is a flex container: Sidebar + Main Content */}
-      <div className="flex flex-1">
-        <Sidebar 
-          isCollapsed={isCollapsed} 
-          onCollapsedChange={setIsCollapsed} 
-        />
-
-        {/* Main content area */}
+      {/* Main content area with TopPanel */}
+      <div className="flex flex-col flex-1">
+        <TopPanel />
         <main className="flex-1 p-4 md:p-8 overflow-y-auto">
           <Outlet />
         </main>

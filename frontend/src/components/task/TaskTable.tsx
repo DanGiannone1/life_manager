@@ -1,6 +1,6 @@
 // File: src/components/task/TaskTable.tsx
 
-import React from 'react';
+
 import { Task } from '../../utils/types'; 
 import {
   Table,
