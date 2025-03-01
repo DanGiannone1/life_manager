@@ -204,9 +204,10 @@ def sync_changes():
             change_type = change.get("type")
             operation = change.get("operation")
             item_id = change.get("id")
-            item_data = camel_to_snake(change.get("data", {}))
+            # Convert the data while preserving all fields, including None values
+            item_data = camel_to_snake(change.get("data")) if change.get("data") is not None else {}
 
-            if item_data:
+            if item_data is not None:
                 item_data["user_id"] = user_id
                 item_data["type"] = change_type
                 item_data["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -496,201 +497,6 @@ class CosmosDBManager:
 
 
 --------------------------------------------------------------------------------
-<File: backend/testing.py>
-
-from cosmos_db import CosmosDBManager
-from datetime import datetime, timedelta, timezone
-import uuid
-
-def cleanup_test_data(cosmos_manager: CosmosDBManager, user_id: str):
-    """Delete all existing documents for the test user"""
-    try:
-        # Query for all items belonging to this user
-        query = "SELECT * FROM c WHERE c.user_id = @user_id"
-        items = list(cosmos_manager.container.query_items(
-            query=query,
-            parameters=[{"name": "@user_id", "value": user_id}],
-            enable_cross_partition_query=False
-        ))
-        
-        # Delete each item
-        for item in items:
-            cosmos_manager.delete_item(item['id'], user_id)
-            print(f"Deleted existing item: {item['id']}")
-        
-        print(f"Cleaned up {len(items)} existing items for user {user_id}")
-    except Exception as e:
-        print(f"Error during cleanup: {str(e)}")
-        raise
-
-def create_iso_date(days_from_now=0):
-    """Create ISO formatted date string for a date N days from now"""
-    date = datetime.now(timezone.utc) + timedelta(days=days_from_now)
-    return date.isoformat()
-
-def generate_sample_tasks():
-    """Generate 5 sample tasks with different characteristics"""
-    test_user_id = "test-user"
-    
-    tasks = [
-        {
-            "id": str(uuid.uuid4()),
-            "user_id": test_user_id,
-            "type": "task",
-            
-            "title": "Daily Exercise Routine",
-            "status": "not_started",
-            "priority": 80,
-            "dynamic_priority": 85,
-            "effort": 3,
-            "notes": "30 minutes of cardio followed by strength training",
-            "due_date": create_iso_date(1),
-            "scheduled_date": create_iso_date(1),
-            "completion_history": [],
-            "recurrence": {
-                "is_recurring": True,
-                "rule": {
-                    "frequency": "daily",
-                    "interval": 1,
-                    "days_of_week": [0, 1, 2, 3, 4]  # Weekdays only
-                }
-            }
-        },
-        {
-            "id": str(uuid.uuid4()),
-            "user_id": test_user_id,
-            "type": "task",
-            
-            "title": "Quarterly Financial Review",
-            "status": "working_on_it",
-            "priority": 90,
-            "dynamic_priority": 95,
-            "effort": 5,
-            "notes": "Review Q1 financial statements and prepare report",
-            "due_date": create_iso_date(14),
-            "scheduled_date": None,
-            "completion_history": [],
-            "recurrence": {
-                "is_recurring": False,
-                "rule": None
-            }
-        },
-        {
-            "id": str(uuid.uuid4()),
-            "user_id": test_user_id,
-            "type": "task",
-            
-            "title": "Weekly Team Meeting",
-            "status": "not_started",
-            "priority": 70,
-            "dynamic_priority": 70,
-            "effort": 2,
-            "notes": None,
-            "due_date": None,
-            "scheduled_date": create_iso_date(7),
-            "completion_history": [],
-            "recurrence": {
-                "is_recurring": True,
-                "rule": {
-                    "frequency": "weekly",
-                    "interval": 1,
-                    "days_of_week": [1],  # Monday
-                    "day_of_month": None,
-                    "months": None,
-                    "week_of_month": None
-                }
-            }
-        },
-        {
-            "id": str(uuid.uuid4()),
-            "user_id": test_user_id,
-            "type": "task",
-            
-            "title": "Read 'Deep Work' Book",
-            "status": "working_on_it",
-            "priority": 40,
-            "dynamic_priority": 45,
-            "effort": 3,
-            "notes": "Complete chapters 4-6",
-            "due_date": create_iso_date(30),
-            "scheduled_date": None,
-            "completion_history": [],
-            "recurrence": {
-                "is_recurring": False,
-                "rule": None
-            }
-        },
-        {
-            "id": str(uuid.uuid4()),
-            "user_id": test_user_id,
-            "type": "task",
-            
-            "title": "Update Personal Website",
-            "status": "complete",
-            "priority": 60,
-            "dynamic_priority": 0,  # Completed tasks have 0 dynamic priority
-            "effort": 4,
-            "notes": "Refresh portfolio and add recent projects",
-            "due_date": create_iso_date(-2),
-            "scheduled_date": None,
-            "completion_history": [{
-                "completed_at": create_iso_date(-1),
-                "next_due_date": None,
-                "completion_notes": "Added three new projects and updated bio"
-            }],
-            "recurrence": {
-                "is_recurring": False,
-                "rule": None
-            }
-        }
-    ]
-    
-    return tasks
-
-def main():
-    try:
-        # Initialize the CosmosDB manager
-        cosmos_manager = CosmosDBManager()
-        
-        # Clean up any existing test data
-        print("\nCleaning up existing test data...")
-        cleanup_test_data(cosmos_manager, "test-user")
-        
-        print("\nGenerating and loading new test data...")
-        # Generate sample tasks
-        tasks = generate_sample_tasks()
-        
-        # Create each task in Cosmos DB
-        created_tasks = []
-        for task in tasks:
-            try:
-                # Note: create_item will automatically add created_at and updated_at
-                created_task = cosmos_manager.create_item(task)
-                created_tasks.append(created_task)
-                print(f"Created task: {created_task['title']}")
-            except Exception as e:
-                print(f"Error creating task '{task['title']}': {str(e)}")
-        
-        # Verify the data was loaded
-        user_data = cosmos_manager.get_user_data("test-user")
-        print(f"\nSuccessfully loaded {len(user_data['tasks'])} tasks for test-user")
-        
-        # Print sample verification data
-        if created_tasks:
-            sample_task = created_tasks[0]
-            print("\nSample task verification:")
-            print(f"ID: {sample_task['id']}")
-            print(f"Created At: {sample_task['created_at']}")
-            print(f"Updated At: {sample_task['updated_at']}")
-            print(f"Title: {sample_task['title']}")
-            print(f"Status: {sample_task['status']}")
-        
-    except Exception as e:
-        print(f"Error in main: {str(e)}")
-
-if __name__ == "__main__":
-    main()
---------------------------------------------------------------------------------
 <File: docs/design_document.md>
 # Life Manager Design Document
 
@@ -722,11 +528,14 @@ if __name__ == "__main__":
    - [State Changes](#state-changes)
    - [Backend Sync Operations](#backend-sync-operations)
 
-5. [Features & Implementation](#features--implementation)
-   - [Sidebar & Top Panel](#sidebar--top-panel)
-   - [Home Page](#home-page)
-   - [Weekly Plan Page](#weekly-plan-page)
-   - [Master List Page](#master-list-page)
+5. [Implementation Details](#implementation-details)
+   - [Project Structure](#project-structure)
+   - [Page Implementations](#page-implementations)
+     - [Master List Page](#master-list-page)
+     - [Weekly Plan Page](#weekly-plan-page)
+     - [Home Page](#home-page)
+   - [Core Components](#core-components)
+     - [Sidebar & Top Panel](#sidebar--top-panel)
    
 6. [Styling & UI](#styling--ui)
     - [High-Level Strategy](#high-level-strategy)
@@ -1380,33 +1189,66 @@ Each sync operation is logged with:
 
 
 
-## Features & Implementation
+## Implementation Details
 
-### Sidebar & Top Panel
+### Project Structure
+The project follows a well-organized structure detailed in [project_structure.md](./project_structure.md). Key highlights include:
 
-#### Overview
+- Clear separation of frontend and backend code
+- Organized component hierarchy
+- Consistent file naming and organization
+- Centralized configuration files
+- Documentation organization
+
+### Page Implementations
+
+#### Master List Page
+The Master List page implementation is documented in [master_list.md](./master_list.md). It covers:
+
+- Table-based task display
+- Task creation and modification
+- Status updates and animations
+- Priority and effort management
+- Task details dialog
+- Sync operations
+
+#### Weekly Plan Page
+*Detailed design document pending*
+
+The Weekly Plan page will follow similar documentation patterns as the Master List page, with its own specific requirements and implementation details.
+
+#### Home Page
+*Detailed design document pending*
+
+The Home page will follow similar documentation patterns as the Master List page, with its own specific requirements and implementation details.
+
+### Core Components
+
+#### Sidebar & Top Panel
+
+##### Overview
 The application includes a persistent global sidebar (on the left) and a top panel (header bar) that remain visible across all pages. These two navigation and control areas ensure quick access to core features and important indicators (sync status, settings, login/logout, etc.).
 
-#### Goals & Requirements
+##### Goals & Requirements
 
-##### Centralized Navigation
+###### Centralized Navigation
 - Provide quick links to core pages (Home, Weekly Plan, Master List, etc.)
 - Allow easy navigation without refreshing or reloading the application
 
-##### Persistent Visibility
+###### Persistent Visibility
 - Remain visible/accessible at all times, regardless of the active page
 - Collapse or expand the sidebar in response to user preference or screen size
 
-##### Key Controls in Top Panel
+###### Key Controls in Top Panel
 - Settings button for user preferences, theme toggles, or account info
 - Sync/Save Indicator to reflect the real-time sync status from the Redux store
 - Login/Logout button/indicator to manage authentication state
 
-##### Responsive & Accessible
+###### Responsive & Accessible
 - Adapt layout for mobile, tablet, and desktop screen sizes
 - Provide clear focus states, ARIA labels, and keyboard navigation
 
-#### Layout & Components
+##### Layout & Components
 ```
 +------------------------------------------------------------------------+
 | [App Logo / Title]            [Sync Indicator]  [Settings]  [Logout]   |
@@ -1418,37 +1260,35 @@ The application includes a persistent global sidebar (on the left) and a top pan
 +------------------+-----------------------------------------------------+
 ```
 
-#### Sidebar
+##### Sidebar Implementation
 
-##### Navigation Links
+###### Navigation Links
 - Home
 - Weekly Plan
 - Master List
 
-
-##### User Info / Profile Section 
+###### User Info / Profile Section 
 - Empty for now
 
-##### Collapse/Expand Control
+###### Collapse/Expand Control
 - A button (e.g., a hamburger icon or double-chevron) that toggles the sidebar's width
 - Uses local React state since it only affects the layout
 
-##### Responsive Behavior
+###### Responsive Behavior
 - Mobile: The sidebar may slide in/out over the content
 - Desktop: The sidebar remains docked on the left
 
-##### Implementation Details
+###### Implementation Details
 - Housed in a `<Sidebar>` component, rendered at the same level as the main content
 - All navigation items are stored in an array or config object (e.g., `NAV_LINKS = [{ path: '/home', label: 'Home', icon: ... }, ...]`), then mapped to `<NavLink>` items
 - Uses local React state for collapse state since it only affects the layout
 
+##### Top Panel Implementation
 
-#### Top Panel
-
-##### Position & Layout
+###### Position & Layout
 - Stays at the top of the viewport, spanning the full width
 
-##### Content Components
+###### Content Components
 - App Logo or Title: Left-aligned; navigates back to Home or a landing page
 - Sync/Save Indicator:
   - Reflects the Redux sync state (idle, syncing, error)
@@ -1524,6 +1364,210 @@ module.exports = {
 - Loading states use consistent animations
 - Error states maintain uniform styling
 - Toast notifications follow a standard design pattern
+--------------------------------------------------------------------------------
+<File: docs/master_list.md>
+# Master List Page Requirements & Implementation
+
+## Table of Contents
+1. [Overview](#overview)
+2. [Purpose & Goals](#purpose--goals)
+3. [Key Features](#key-features)
+    - [Task Table](#task-table)
+    - [New Task Creation](#new-task-creation)
+    - [Status Updates](#status-updates)
+    - [Priority & Effort Updates](#priority--effort-updates)
+    - [Task Deletion](#task-deletion)
+    - [Task Details Dialog](#task-details-dialog)
+4. [Data Flow & Architecture](#data-flow--architecture)
+    - [Redux State & Actions](#redux-state--actions)
+    - [Sync Operations](#sync-operations)
+    - [UI/UX Flow](#uiux-flow)
+5. [Relevant Code Files & Interfaces](#relevant-code-files--interfaces)
+    - [MasterListPage.tsx](#masterlistpagetsx)
+    - [TaskTable.tsx](#tasktabletsx)
+    - [TaskTableRow.tsx](#tasktablerowtsx)
+    - [AddTaskDialog.tsx](#addtaskdialogtsx)
+    - [Task.ts Interface](#taskts-interface)
+    - [Sync Engine & Data Models](#sync-engine--data-models)
+6. [How It Aligns with the Design Document](#how-it-aligns-with-the-design-document)
+7. [Future Enhancements](#future-enhancements)
+
+---
+
+## Overview
+The **Master List** page displays all tasks in a tabular, filterable, and sortable layout. It also allows users to create new tasks, update existing tasks (status, priority, effort, etc.), and view additional details in a dialog. This page is intended to be a centralized "all-tasks" view, complementing other domain-specific pages like the Weekly Plan.
+
+In the UI screenshot, each row of the table shows a single task's essential information (title, status, priority, effort, due date, etc.). A user can also create new tasks via the **New Task** button at the top right.
+
+---
+
+## Purpose & Goals
+- **Easy Visibility**: Provide a single page for users to see all their tasks in a list/table format.
+- **Quick Interaction**: Change statuses, priorities, or effort with minimal clicks.
+- **New Task Creation**: Let users add tasks without leaving the page.
+- **Detailed Inspection**: Access more info in a pop-up dialog (history, recurrence info, notes).
+- **Backend Sync**: Changes appear instantly in the UI (optimistic updates) and automatically sync with the backend via the shared sync engine.
+
+---
+
+## Key Features
+
+### Task Table
+- Renders a table of tasks, one per row.
+- Each column includes properties like **Title**, **Status**, **Priority**, **Effort**, **Due Date**, **Recurrence**, and **Notes**.
+- The final **Actions** column provides buttons to **view** task details or **delete** the task.
+
+### New Task Creation
+- A **New Task** button is positioned in the top-right corner of the page.
+- Clicking it opens the `AddTaskDialog`, a modal form that collects:
+  - **Title** (required)
+  - **Priority** (defaults to Medium / 40)
+  - **Effort** (defaults to Medium / 3)
+  - **Due Date** (optional date selector)
+  - **Notes** (optional text)
+  - **Recurrence** (optional, with fields for frequency and interval)
+- Form validations ensure a title is entered and recurrence intervals make sense.
+
+### Status Updates
+- Clicking the **status bubble** in each row cycles the task through `Not Started`, `Working on It`, and `Complete`. 
+- If the task is recurring, setting it to `complete` triggers logic to reset it:
+  1. Marks it complete momentarily.
+  2. Creates a completion record in `completionHistory`.
+  3. Immediately resets status to `not_started`, updates `due_date` based on the recurrence rule, and logs a toast notification.
+- The user sees an animation while the task transitions.
+
+### Priority & Effort Updates
+- **Priority**: Each row includes a priority chip. Clicking it cycles through `Very Low (0)`, `Low (20)`, `Medium (40)`, `High (60)`, `Very High (80)`.
+- **Effort**: A similar chip cycles from `Very Low (1)` to `Very High (5)`.
+
+### Task Deletion
+- Each row has a trash icon button. Clicking it pops open a small **Popover** to confirm deletion. If confirmed, the task is optimistically removed from Redux and marked for deletion in the backend sync engine.
+
+### Task Details Dialog
+- Clicking the eye icon opens the `TaskDetails` dialog, which shows:
+  - Status and color-coded bubble
+  - Priority (numeric plus color-coded chip)
+  - Due Date (read-only display)
+  - Scheduled Date (read-only display)
+  - Recurrence summary (if any)
+  - Completion History (timestamps and optional completion notes)
+- This dialog is read-only by default but helps the user quickly reference deeper details.
+
+---
+
+## Data Flow & Architecture
+
+### Redux State & Actions
+1. **`taskSlice`**  
+   - Stores tasks in normalized form (`items: Record<id, Task>`).
+   - Includes actions: `addTask`, `updateTask`, `deleteTask`, `setTasks` (bulk set).
+   
+2. **`syncSlice`**  
+   - Stores the global sync state: `status: 'idle' | 'syncing' | 'error'`, plus `lastSynced` timestamp.
+   - Actions like `setSyncStatus`, `setLastSynced` keep track of sync progress.
+
+### Sync Operations
+- **Optimistic Updates**: Whenever the user changes a task (status, priority, etc.), the UI updates immediately.
+- **Debounced Sync**: The system schedules a sync request to the `/api/v1/sync` endpoint after a brief delay. Each type of change (e.g. status vs. text) has a different debounce time.
+- The server's response may contain newer changes from other clients or server-side logic, which get merged back into local state.
+
+### UI/UX Flow
+1. **Load**: When the user navigates to the Master List page, the tasks are already loaded into Redux from an initial fetch at app startup.
+2. **Interaction**: 
+   - User sees a table of tasks.  
+   - User can click status, priority, or effort chips to cycle through values; a sync operation is scheduled automatically.  
+   - Deletion or creation triggers an immediate store update plus a background sync.  
+   - If recurring tasks are completed, the system initiates a small animation, updates the store, and triggers a re-sync.
+
+---
+
+## Relevant Code Files & Interfaces
+
+### `MasterListPage.tsx`
+- **Location**: `frontend/src/pages/MasterListPage.tsx`
+- **Responsibilities**:
+  - Fetches tasks from Redux and converts to array (`tasksArray`).
+  - Renders the **New Task** button, which opens `AddTaskDialog`.
+  - Displays `TaskTable` with all tasks.
+
+### `TaskTable.tsx`
+- **Location**: `frontend/src/components/task/TaskTable.tsx`
+- **Responsibilities**:
+  - Receives an array of tasks.
+  - Renders them in a `<table>` structure using shadcn/ui `Table` components.
+  - Maps each task to a `TaskTableRow`.
+
+### `TaskTableRow.tsx`
+- **Location**: `frontend/src/components/task/TaskTableRow.tsx`
+- **Responsibilities**:
+  - Renders each task's columns (title, status, priority, etc.).
+  - Implements click handlers to cycle statuses, priority, effort.
+  - Initiates sync calls via `syncChanges(...)`.
+  - Opens the `TaskDetails` dialog or the delete confirmation popover.
+
+### `AddTaskDialog.tsx`
+- **Location**: `frontend/src/components/task/AddTaskDialog.tsx`
+- **Responsibilities**:
+  - Renders a form in a dialog for creating new tasks:
+    - Title, Priority, Effort, Due Date, Notes, Recurrence, etc.
+  - Validates user input (e.g., Title is required).
+  - Dispatches `addTask` to Redux plus a "create" operation to the sync engine.
+  - Closes on successful creation.
+
+### `Task.ts` Interface
+- **Location**: `frontend/src/utils/types.ts`
+- **Interface Definition**:
+  ```typescript
+  export interface Task {
+    id: UUID;
+    userId: UUID;
+    type: 'task';
+    title: string;
+    status: 'notStarted' | 'workingOnIt' | 'complete';
+    priority: number;
+    dynamicPriority: number;
+    effort?: number;
+    notes?: string;
+    dueDate?: string;
+    scheduledDate?: string;
+    createdAt: string;
+    updatedAt: string;
+    completionHistory: CompletionEntry[];
+    recurrence?: { isRecurring: boolean; rule?: RecurrenceRule };
+    tags?: string[];
+  }
+  ```
+- The status field is used heavily on this page (cycling from `notStarted` → `workingOnIt` → `complete`).
+- The optional recurrence object leads to automatic re-scheduling logic when a task is completed.
+
+### Sync Engine & Data Models
+- `syncEngine.ts` manages debounced sync calls.
+- `api.ts` provides methods for fetching user data (`getUserData`) and syncing changes (`sync`).
+- Backend: Follows the design document's architecture, using a single container in Cosmos DB with snake_case fields.
+- Case conversions happen on the backend so the frontend can remain in camelCase.
+
+---
+
+## How It Aligns with the Design Document
+- **Single Source of Truth**: Uses Redux for local state; aligns with "Data Flow & Sync Strategy" from the design doc.
+- **Optimistic Updates**: Immediately applies UI changes, then syncs in the background.
+- **Enum & Value Mappings**: Follows the design doc's approach for statuses, priority ranges, effort levels, and recurrence data.
+- **Case Conversion**: The backend handles snake_case, while the frontend remains in camelCase per the design doc's instructions.
+- **Component Architecture**: Splits table, table row, details dialog, add dialog into separate files, aligning with the doc's "Component Architecture" section for maintainability.
+
+---
+
+## Future Enhancements
+
+### Filtering & Sorting
+- Add UI controls to filter tasks by status, due date, or search keywords.
+- Integrate table-based or server-based sorting (by priority, effort, or date).
+
+### Inline Editing
+- Edit titles or notes directly in the row, further reducing the need for a details dialog.
+
+### Pagination
+- For users with very large task sets, a paginated or virtualized table might be necessary.
 --------------------------------------------------------------------------------
 <File: docs/project_structure.md>
 # Project Tree
@@ -1713,6 +1757,37 @@ life-manager/
 - UI feedback animations
 
 
+
+## Weekly Plan
+
+Current Implementation Structure
+
+Page Level (WeeklyPlanPage.tsx):
+
+
+Manages selected week dates using useState
+Fetches all tasks from Redux
+Splits them into unscheduled vs scheduled tasks
+Handles week navigation
+Renders the main layout with UnscheduledTasksSidebar and WeeklyCalendar
+
+
+Calendar Level (WeeklyCalendar.tsx):
+
+
+Takes weekDates and tasks as props
+Maps over the 7 days of the week
+Uses getTasksForDate to filter tasks for each day
+Renders the column headers and DayColumn components
+
+
+Day Column Level (DayColumn.tsx):
+
+
+Handles drag and drop functionality
+Updates task.scheduledDate when tasks are dropped
+Renders TaskCard components for each task assigned to that day
+
 --------------------------------------------------------------------------------
 <File: docs/task_plan.md>
 # Task Plan
@@ -1768,6 +1843,19 @@ life-manager/
        - [ ] Add action button in MasterListPage
 
 
+6. Task Recurrence Logic
+   - [ ] Update Task Completion Flow
+       - [ ] Create utility function to calculate next due date based on recurrence rule
+       - [ ] Add completion record to history when marking complete
+       - [ ] Add logic to reset recurring tasks:
+           - [ ] Status back to notStarted
+           - [ ] Update due date based on recurrence rule
+
+   
+   - [ ] Add Recurrence Preview
+       - [ ] Show next occurrence date in TaskDetails
+       - [ ] Add visual indicator for recurring tasks in table
+       - [ ] Add tooltip showing recurrence pattern
 
 
 1. Add "Add Task" functionality
@@ -1781,6 +1869,204 @@ life-manager/
     - Add the ability to edit task details (Due Date, Notes, Title) 
 
 3. Create collapsable filter and sort scaffolding 
+--------------------------------------------------------------------------------
+<File: docs/weekly_plan.md>
+# Weekly Plan Page Documentation
+
+## Overview
+The Weekly Plan Page provides a 7-day calendar-style interface for scheduling and managing tasks. It leverages the same core Task model and optimistic Redux architecture used in the rest of the application. Users can see at a glance which tasks are planned for each day of the week, drag unscheduled tasks onto specific days, and toggle task statuses directly within the weekly view.
+
+## Core Concepts
+
+### Single Source of Truth in Redux
+- All tasks are stored in Redux (via the tasks slice)
+- The Weekly Plan uses scheduledDate on each Task to determine whether it appears on a certain day (e.g., if scheduledDate === "2025-04-05", it shows up on April 5)
+
+### Optimistic Updates & Debounced Sync
+- When a user drags a task to a day, the UI immediately sets scheduledDate in Redux
+- A background sync call (syncChanges('drag', ...)) persists the change to the backend
+- If the user reloads or navigates away, the updated scheduledDate ensures the task reappears on that date
+
+### Same Status-Toggling Logic as Master List
+- Tasks can be marked notStarted → workingOnIt → complete using a simple click cycle
+- If a recurring task is marked complete, the same recurrence reset logic triggers. The difference is purely visual: the Weekly Plan fades out the completed task after the "green check" animation (and possibly resets dueDate or scheduledDate if it's recurring)
+
+## Goals & Requirements
+
+### Visual Scheduling
+- Display a seven-day grid representing the selected week
+- Let users drag tasks from an "Unscheduled" list (or from one day to another) to set or change scheduledDate
+
+### Status Management
+- Provide the same toggle logic used in the Master List: a click cycles from notStarted to workingOnIt to complete
+- Trigger the same optimistic updates and toast notifications, with an additional fade-out animation on completion
+
+### No Extra API Calls for Navigation
+- The Weekly Plan only depends on data already fetched and stored in Redux via /api/v1/user-data
+- Navigating to previous or next week adjusts which scheduledDate range is displayed, but no new data fetch is required
+
+### Minimal Error Handling
+- If a sync call fails, the top panel's sync indicator shows "sync error," but we do not implement automatic reverts or advanced retry logic
+
+## Page Layout
+
+```
++----------------------------------------------------------------------------------+
+|  [Weekly Plan Header]  (e.g. "Mar 31, 2025 - Apr 6, 2025")   [Prev | Next]       |
++-----------------------------+----------------------------------------------------+
+| Unscheduled Tasks (sidebar) |   7-Day Grid (Mon | Tue | Wed | Thu | Fri | Sat | Sun)
+|  - tasks without            |     Each day: tasks with scheduledDate == that day
+|    scheduledDate            |     Drag-and-drop to change day or to/from sidebar
++-----------------------------+----------------------------------------------------+
+```
+
+### Unscheduled Tasks
+- Tasks with no scheduledDate (null/undefined) appear here
+- Support drag from this list onto any day column in the grid
+- On drop, Redux updates the task's scheduledDate, followed by an automatic background sync (changeType: 'drag')
+
+### 7-Day Grid
+- Each column corresponds to a date within the selected week
+- Tasks for that date appear in a vertical list (a "day column")
+- Dragging a task from one day to another updates its scheduledDate
+
+### Weekly Plan Header
+- Shows the currently selected week range
+- "Prev" and "Next" buttons adjust a local or Redux-based selectedWeek state
+- Since all tasks live in Redux, changing weeks is just a matter of filtering tasks by date
+
+## Key Interactions
+
+### Scheduling a Task
+1. Drag a task from the Unscheduled list onto a day's column
+2. The app immediately sets task.scheduledDate = <that day> in Redux
+3. syncChanges('drag', ...) is called to push the update to the backend
+
+### Rescheduling Between Days
+- Drag a task from one day column to another
+- Same Redux update + background sync pattern
+
+### Status Toggle
+- Click on the task's status bubble or button to cycle: notStarted → workingOnIt → complete
+- If complete, handle the same recurring reset logic as on the Master List (e.g., add an entry to completionHistory, set status back to notStarted, etc.), plus a fade-out animation in the Weekly Plan's UI
+
+### Animations & Toast
+- On complete, show a brief checkmark toast (and possibly a separate fade-out if you're removing the task from the day column)
+- If recurring, also reset the task's scheduledDate or dueDate in Redux, and dispatch a sync
+- If non-recurring, leave the task's scheduledDate but show it as complete
+
+## Implementation Details
+
+### Data Model: Task
+
+```typescript
+interface Task {
+  id: string;
+  userId: string;
+  type: 'task';
+  title: string;
+  status: 'notStarted' | 'workingOnIt' | 'complete';
+  priority: number;
+  dynamicPriority: number;
+  effort?: number;
+  notes?: string;
+  dueDate?: string;
+  scheduledDate?: string; // <-- used extensively on Weekly Plan
+  createdAt: string;
+  updatedAt: string;
+  completionHistory: CompletionEntry[];
+  recurrence?: {
+    isRecurring: boolean;
+    rule?: RecurrenceRule;
+  };
+  tags?: string[];
+}
+```
+
+**Key Field**: `scheduledDate` determines whether a task appears in a given day column or in the Unscheduled list (null/undefined means unscheduled).
+
+### Redux Integration
+
+#### Selectors
+- `selectUnscheduledTasks`: filters tasks where scheduledDate is null/undefined
+- `selectTasksForDate(dateString)`: filters tasks whose scheduledDate matches the day
+
+#### Actions & Slices
+- The same taskSlice from the Master List handles creation, updates, and deletions
+- Setting scheduledDate is handled by a standard updateTask action:
+
+```typescript
+store.dispatch(updateTask({ id: task.id, changes: { scheduledDate: '2025-04-05' } }));
+```
+
+The syncEngine.ts handles the debounced calls (syncChanges('drag', ...), syncChanges('status', ...), etc.).
+
+### Components
+
+#### WeeklyPlanPage.tsx
+- High-Level Container: Renders a WeeklyPlanHeader, an UnscheduledTasksSidebar, and a WeeklyCalendar
+- Maintains or retrieves selectedWeek from Redux or local state
+
+#### WeeklyPlanHeader
+- Displays the currently selected week range
+- Buttons for "previous"/"next" week adjust selectedWeek
+- Possibly highlights the current week or day
+
+#### UnscheduledTasksSidebar
+- Lists tasks where scheduledDate is not set
+- Each task is shown as a small card or row (similar to the Master List's TaskCard) with drag handles
+- Initiates a drag event that references the task's ID, letting you drop it onto a day
+
+#### WeeklyCalendar
+- A 7-day row (or column) of DayColumn components (e.g., [Mon, Tue, Wed, Thu, Fri, Sat, Sun])
+- Each DayColumn uses selectTasksForDate to render relevant tasks
+- Each day's tasks are also draggable. You can drag from one day to another. On drop, scheduledDate changes
+
+#### DayColumn
+- Accepts a date prop (e.g., '2025-04-05')
+- Renders each Task in a stack or list
+- Dropping tasks triggers updateTask({ scheduledDate: date })
+
+#### TaskCard (or "TaskRow")
+- Reused or adapted from your Master List
+- Has the same status toggle logic
+- Possibly has an additional fade-out animation on complete if you want to remove completed tasks from the view
+
+## Example Workflow
+
+### User Drags Unscheduled Task
+1. The "Unscheduled" sidebar has a task with scheduledDate = undefined
+2. The user drags it onto Wednesday (e.g., "2025-04-02")
+3. Redux immediately updates task.scheduledDate = '2025-04-02', UI re-renders to show the task under Wednesday
+4. syncChanges('drag', [ { type: 'task', operation: 'update', id: task.id, data: { scheduledDate: '2025-04-02' } } ]) is dispatched
+
+### User Marks Task Complete
+1. The user clicks on the task's status bubble
+2. It cycles from workingOnIt to complete
+3. The system shows a green check toast
+4. If the task is recurring, a short delay triggers reset logic (e.g., sets status to notStarted, calculates next dueDate, clears scheduledDate, and logs the completion). The UI animates a fade-out from the calendar
+5. Another sync call updates the server with these changes
+
+## Future Enhancements
+
+### Drag Reversion / Retry
+- Currently not implemented. If a sync call fails, the user sees an error indicator, but no automatic revert occurs
+
+### Filter or Group by Priority
+- The Weekly Plan could optionally show higher-priority tasks in a highlight color or separate group
+
+### Extended Recurrence Logic
+- You may choose to auto-set the scheduledDate for upcoming occurrences if a task is recurring. Currently, only the completion logic is handled
+
+### Inline Edits
+- Let users rename tasks or change notes directly from the weekly calendar, reusing your existing syncChanges('text', ...) approach
+
+## Summary
+- The Weekly Plan Page is a specialized interface built atop the same Task model and Redux slices used by the Master List
+- Scheduled tasks appear in date columns; unscheduled tasks appear in a sidebar
+- Dragging updates scheduledDate, and status toggling uses the same cycle logic from your Master List, with an added fade-out animation for completed tasks
+- All changes are optimistic, with a debounced sync operation to persist data in the backend
+- Advanced failure recovery (revert/retry) is intentionally out of scope for now, but the page still conforms to the core design patterns of your app (Redux, single container in CosmosDB, and consistent case conversions on the backend)
 --------------------------------------------------------------------------------
 <File: frontend/components.json>
 {
@@ -1886,6 +2172,7 @@ export default tseslint.config(
     "lucide-react": "^0.471.0",
     "postcss": "^8.4.49",
     "react": "^18.3.1",
+    "react-beautiful-dnd": "^13.1.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
     "react-redux": "^9.2.0",
@@ -1898,6 +2185,7 @@ export default tseslint.config(
     "@eslint/js": "^9.17.0",
     "@types/node": "^22.10.5",
     "@types/react": "^18.3.18",
+    "@types/react-beautiful-dnd": "^13.1.8",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "eslint": "^9.17.0",
@@ -2025,6 +2313,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { store } from './state/syncEngine';
 import { Toaster } from "@/components/ui/toaster";
+import "@/components/animations/animations.css";
 
 // Pages
 import HomePage from './pages/HomePage';
@@ -2054,33 +2343,53 @@ function App() {
 export default App;
 --------------------------------------------------------------------------------
 <File: frontend/src/components/animations/animations.css>
-/* src/components/animations/StatusCheckAnimation.css */
+/* src/components/animations/animations.css */
 
-/* Attach this class to the overall bubble, so we can position the check icon absolutely within it. */
+/* Status bubble and checkmark animation */
 .status-bubble {
-    position: relative;
-    width: 7rem; 
-    height: 2rem; 
-    /* or keep auto width, but if so, test that the icon doesn't overlap text */
+  position: relative;
+}
+
+.status-check-icon {
+  transform: scale(0);
+  opacity: 0;
+  transition: transform 500ms ease, opacity 500ms ease;
+}
+
+.animate-check .status-check-icon {
+  transform: scale(1);
+  opacity: 1;
+}
+
+/* Completion animation */
+@keyframes completionFlash {
+  0% {
+    background-color: transparent;
   }
-  
-  /* The check icon itself (initially hidden & scaled down) */
-  .status-check-icon {
-    position: absolute;
-    left: 0.4rem;              /* place it on the left side */
-    top: 50%;
-    transform: translateY(-50%) scale(0);
-    opacity: 0;
-    transition: transform 0.3s ease, opacity 0.3s ease;
-    /* color: #xxx; or keep text-current if you want it to match text color */
+  50% {
+    background-color: rgba(34, 197, 94, 0.1); /* Light green flash */
   }
-  
-  /* When .animate-check is active, “pop” the check in */
-  .animate-check .status-check-icon {
-    transform: translateY(-50%) scale(1);
-    opacity: 1;
+  100% {
+    background-color: transparent;
   }
-  
+}
+
+.animate-completion {
+  animation: completionFlash 1s ease-out forwards;
+}
+
+/* Task resetting animation */
+.task-resetting {
+  opacity: 0.5;
+  transition: opacity 300ms ease-in-out;
+}
+
+/* Fade out animation */
+.fade-out {
+  opacity: 0;
+  transform: scale(0.95);
+  transition: opacity 500ms ease-out, transform 500ms ease-out;
+}
 --------------------------------------------------------------------------------
 <File: frontend/src/components/layouts/AppLayout.tsx>
 import { useEffect, useState } from 'react';
@@ -2182,7 +2491,7 @@ export const Sidebar = ({ isCollapsed, onCollapsedChange }: SidebarProps) => {
 --------------------------------------------------------------------------------
 <File: frontend/src/components/layouts/TopPanel.tsx>
 import { useSelector } from 'react-redux';
-import { Check, Loader2, AlertCircle } from 'lucide-react';
+import { Check, Loader2, AlertCircle, Settings, LogIn } from 'lucide-react';
 import { RootState } from '../../state/syncEngine';
 import { Button } from '../ui/button';
 
@@ -2236,8 +2545,9 @@ export function TopPanel() {
                             variant="default"
                             size="sm"
                             aria-label="Settings (coming soon)"
+                            title="Settings"
                         >
-                            Settings
+                            <Settings className="h-4 w-4" />
                         </Button>
 
                         {/* Login/Logout Button - Inactive for now */}
@@ -2245,8 +2555,9 @@ export function TopPanel() {
                             variant="default"
                             size="sm"
                             aria-label="Login (coming soon)"
+                            title="Logout"
                         >
-                            Login
+                            <LogIn className="h-4 w-4" />
                         </Button>
                     </div>
                 </div>
@@ -2575,20 +2886,21 @@ export function AddTaskDialog({ open, onOpenChange }: AddTaskDialogProps) {
 }
 --------------------------------------------------------------------------------
 <File: frontend/src/components/task/Recurrence.tsx>
-//src/components/task/Recurrence.ts
+// src/components/task/Recurrence.ts
 
-import { format, addDays, addWeeks, addMonths, addYears } from 'date-fns';
+import { addDays, addWeeks, addMonths, addYears, isBefore } from 'date-fns';
 import { RecurrenceRule, CompletionEntry } from '@/utils/types';
 
 /**
  * Calculate the next due date based on a recurrence rule
+ * Now using the current date as the base for calculations
  */
 export function calculateNextDueDate(
-  currentDueDate: string | undefined,
   rule: RecurrenceRule
 ): string {
-  // Use current due date or today as base
-  const baseDate = currentDueDate ? new Date(currentDueDate) : new Date();
+  // Always use current date as the base for next occurrence
+  const now = new Date();
+  const baseDate = new Date(now);
   
   // Calculate next date based on frequency and interval
   let nextDate: Date;
@@ -2596,35 +2908,78 @@ export function calculateNextDueDate(
     case 'daily':
       nextDate = addDays(baseDate, rule.interval);
       break;
+      
     case 'weekly':
+      // First, add the weeks
       nextDate = addWeeks(baseDate, rule.interval);
+      
+      // If specific days of week are specified
+      if (rule.daysOfWeek?.length) {
+        // Find the next allowed day of week after our calculated date
+        const currentDay = nextDate.getDay();
+        let daysUntilNext = 7; // Maximum days we might need to add
+        
+        for (const allowedDay of rule.daysOfWeek) {
+          const diff = allowedDay - currentDay;
+          const adjustedDiff = diff <= 0 ? diff + 7 : diff;
+          if (adjustedDiff < daysUntilNext) {
+            daysUntilNext = adjustedDiff;
+          }
+        }
+        
+        nextDate = addDays(nextDate, daysUntilNext);
+      }
       break;
+      
     case 'monthly':
       nextDate = addMonths(baseDate, rule.interval);
+      
+      // If a specific day of month is specified
+      if (rule.dayOfMonth) {
+        // Get the last day of the target month
+        const lastDay = new Date(
+          nextDate.getFullYear(),
+          nextDate.getMonth() + 1,
+          0
+        ).getDate();
+        
+        // Use the specified day, but don't exceed the last day of the month
+        const targetDay = Math.min(rule.dayOfMonth, lastDay);
+        nextDate.setDate(targetDay);
+        
+        // If the calculated date is before current date, move to next month
+        if (isBefore(nextDate, now)) {
+          nextDate = addMonths(nextDate, 1);
+        }
+      }
       break;
+      
     case 'yearly':
       nextDate = addYears(baseDate, rule.interval);
       break;
+      
     default:
       throw new Error(`Unknown frequency: ${rule.frequency}`);
   }
-
-  // Handle day constraints for weekly frequency
-  if (rule.frequency === 'weekly' && rule.daysOfWeek?.length) {
-    // Find the next allowed day of week
-    while (!rule.daysOfWeek.includes(nextDate.getDay())) {
-      nextDate = addDays(nextDate, 1);
+  
+  // Ensure we never return a date in the past
+  if (isBefore(nextDate, now)) {
+    switch (rule.frequency) {
+      case 'daily':
+        nextDate = addDays(now, rule.interval);
+        break;
+      case 'weekly':
+        nextDate = addWeeks(now, rule.interval);
+        break;
+      case 'monthly':
+        nextDate = addMonths(now, rule.interval);
+        break;
+      case 'yearly':
+        nextDate = addYears(now, rule.interval);
+        break;
     }
   }
-
-  // Handle month/day constraints for monthly frequency
-  if (rule.frequency === 'monthly' && rule.dayOfMonth) {
-    // Set to specified day of month, handling end of month cases
-    const maxDays = new Date(nextDate.getFullYear(), nextDate.getMonth() + 1, 0).getDate();
-    const targetDay = Math.min(rule.dayOfMonth, maxDays);
-    nextDate.setDate(targetDay);
-  }
-
+  
   return nextDate.toISOString();
 }
 
@@ -2646,7 +3001,13 @@ export function createCompletionRecord(
  * Format a date for display
  */
 export function formatDate(date: string | Date): string {
-  return format(new Date(date), 'PPP');
+  if (!date) return '';
+  const d = new Date(date);
+  return d.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
 }
 
 /**
@@ -2663,22 +3024,210 @@ export function shouldResetTask(
 }
 --------------------------------------------------------------------------------
 <File: frontend/src/components/task/TaskCard.tsx>
-
-import { Task } from '../../utils/types';
+// src/components/weekly-plan/TaskCard.tsx
+import { useState } from 'react';
+import { useDispatch } from 'react-redux';
+import { Task } from '@/utils/types';
+import { Card } from '@/components/ui/card';
+import { Check, GripVertical } from 'lucide-react';
+import { STATUS_DISPLAY, STATUS_COLORS } from '@/utils/displayMappings';
+import { updateTask } from '@/state/slices/taskSlice';
+import { syncChanges } from '@/state/syncEngine';
+import { 
+  calculateNextDueDate,
+  createCompletionRecord,
+  shouldResetTask,
+} from '@/components/task/Recurrence';
+import '@/components/animations/animations.css';
 
 interface TaskCardProps {
   task: Task;
+  isDraggable?: boolean;
 }
 
-const TaskCard = ({ task }: TaskCardProps) => {
+const STATUS_SEQUENCE = ['notStarted', 'workingOnIt', 'complete'] as const;
+
+const TaskCard = ({ task, isDraggable }: TaskCardProps) => {
+  const dispatch = useDispatch();
+  const [isDragging, setIsDragging] = useState(false);
+  const [animateCheck, setAnimateCheck] = useState(false);
+  const [isFadingOut, setIsFadingOut] = useState(false);
+
+  // Handle marking a recurring task as complete
+  const handleRecurringComplete = () => {
+    if (!task.recurrence?.rule) return;
+
+    // Calculate next due date and create completion record
+    const nextDueDate = calculateNextDueDate(task.recurrence.rule);
+    const completionRecord = createCompletionRecord(nextDueDate);
+    const changes: Partial<Task> = {
+      status: 'notStarted' as const,
+      dueDate: nextDueDate,
+      scheduledDate: nextDueDate,
+      completionHistory: [...(task.completionHistory || []), completionRecord]
+    };
+
+    // Show completion state briefly
+    dispatch(updateTask({
+      id: task.id,
+      changes: { status: 'complete' }
+    }));
+
+    // Start animations
+    setAnimateCheck(true);
+
+    // After checkmark and flash animations, start fade out
+    setTimeout(() => {
+      setIsFadingOut(true);
+      
+      // After fade out completes, update the task
+      setTimeout(() => {
+        dispatch(updateTask({
+          id: task.id,
+          changes
+        }));
+
+        syncChanges('status', [{
+          type: 'task',
+          operation: 'update',
+          id: task.id,
+          data: changes
+        }]);
+
+        // Reset animations
+        setAnimateCheck(false);
+        setIsFadingOut(false);
+      }, 500); // Match the fade-out duration
+    }, 1000); // Wait for checkmark and flash animations
+  };
+
+  // Handle status changes
+  const handleStatusClick = () => {
+    let nextStatus: typeof STATUS_SEQUENCE[number];
+
+    switch (task.status) {
+      case 'notStarted':
+        nextStatus = 'workingOnIt';
+        setAnimateCheck(false);
+        break;
+      case 'workingOnIt':
+        nextStatus = 'complete';
+        // If it's a recurring task, handle differently
+        if (shouldResetTask(task)) {
+          handleRecurringComplete();
+          return;
+        }
+        // Otherwise, just show checkmark for non-recurring task
+        setAnimateCheck(true);
+        break;
+      case 'complete':
+        nextStatus = 'notStarted';
+        setAnimateCheck(false);
+        break;
+      default:
+        nextStatus = 'notStarted';
+        setAnimateCheck(false);
+    }
+
+    // For non-recurring tasks being completed, add completion record
+    if (nextStatus === 'complete') {
+      const completionRecord = createCompletionRecord();
+      const changes: Partial<Task> = {
+        status: nextStatus,
+        completionHistory: [...(task.completionHistory || []), completionRecord]
+      };
+
+      dispatch(updateTask({
+        id: task.id,
+        changes
+      }));
+
+      syncChanges('status', [{
+        type: 'task',
+        operation: 'update',
+        id: task.id,
+        data: changes
+      }]);
+      return;
+    }
+
+    // For all other status changes
+    const changes: Partial<Task> = { status: nextStatus };
+    
+    dispatch(updateTask({
+      id: task.id,
+      changes
+    }));
+
+    syncChanges('status', [{
+      type: 'task',
+      operation: 'update',
+      id: task.id,
+      data: changes
+    }]);
+  };
+
+  // Drag handlers
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('text/task-id', task.id);
+    e.dataTransfer.effectAllowed = 'move';
+    setIsDragging(true);
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false);
+  };
+
   return (
-    <div className="p-4 border rounded-lg shadow-sm">
-      {/* Card content will be added later */}
-    </div>
+    <Card
+      draggable={isDraggable}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      className={[
+        'relative flex flex-col p-3 gap-2',
+        isDraggable ? 'cursor-grab active:cursor-grabbing' : '',
+        isDragging ? 'opacity-50' : '',
+        task.status === 'complete' ? 'animate-completion' : '',
+        isFadingOut ? 'fade-out' : '',
+      ].filter(Boolean).join(' ')}
+    >
+      {/* Header with drag handle and title */}
+      <div className="flex items-center gap-2">
+        {isDraggable && (
+          <div className="flex-shrink-0 text-muted-foreground">
+            <GripVertical className="h-4 w-4" />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium truncate">
+            {task.title}
+          </div>
+        </div>
+      </div>
+
+      {/* Status Bubble */}
+      <button
+        onClick={handleStatusClick}
+        className={[
+          'inline-flex items-center justify-center w-28 h-7 px-2 rounded-full text-xs relative',
+          'status-bubble',
+          STATUS_COLORS[task.status] || 'bg-gray-100 text-gray-800',
+          animateCheck || task.status === 'complete' ? 'animate-check' : '',
+          task.status === 'complete' ? 'status-complete' : '',
+        ].join(' ')}
+      >
+        <div className="flex items-center gap-1">
+          {task.status === 'complete' && (
+            <Check className="status-check-icon h-4 w-4" />
+          )}
+          {STATUS_DISPLAY[task.status] || task.status}
+        </div>
+      </button>
+    </Card>
   );
 };
 
-export default TaskCard; 
+export default TaskCard;
 --------------------------------------------------------------------------------
 <File: frontend/src/components/task/TaskDetails.tsx>
 
@@ -2863,7 +3412,7 @@ import { useState } from 'react';
 import { TableCell, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
 import { Eye, Trash2, Check } from 'lucide-react';
-import { useToast } from "@/components/ui/useToast";
+import { useToast } from "@/hooks/use-toast";
 import TaskDetails from './TaskDetails';
 import { Task } from '@/utils/types';
 import {
@@ -2877,6 +3426,7 @@ import { syncChanges, store } from '@/state/syncEngine';
 import { updateTask, deleteTask } from '@/state/slices/taskSlice';
 import { calculateNextDueDate, createCompletionRecord, shouldResetTask, formatDate } from './Recurrence';
 import '@/components/animations/animations.css';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 
 const STATUS_SEQUENCE = ['notStarted', 'workingOnIt', 'complete'] as const;
 const PRIORITY_SEQUENCE = [0, 20, 40, 60, 80];
@@ -2891,6 +3441,7 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
   const [showDetails, setShowDetails] = useState(false);
   const [animateCheck, setAnimateCheck] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
   // Priority, Effort, Recurrence strings
   const priorityInfo = getPriorityDisplay(task.priority);
@@ -2906,7 +3457,7 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
     if (!task.recurrence?.rule) return;
 
     // Calculate next due date
-    const nextDueDate = calculateNextDueDate(task.dueDate, task.recurrence.rule);
+    const nextDueDate = calculateNextDueDate(task.recurrence.rule);
     
     // Create completion record
     const completionRecord = createCompletionRecord(nextDueDate);
@@ -2919,9 +3470,6 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
 
     // Trigger animations
     setAnimateCheck(true);
-    setTimeout(() => setAnimateCheck(false), 1000);
-
-    // After a delay, reset the task
     setTimeout(() => {
       setIsResetting(true);
 
@@ -2953,7 +3501,8 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
         description: `${task.title} will be due again on ${formatDate(nextDueDate)}`,
       });
 
-      // Remove resetting state
+      // Reset animations
+      setAnimateCheck(false);
       setTimeout(() => setIsResetting(false), 300);
     }, 1500);
   };
@@ -2983,9 +3532,9 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
       data: { status: nextStatus }
     }]);
 
+    // Update animation state based on status
     if (nextStatus === 'complete') {
       setAnimateCheck(true);
-      setTimeout(() => setAnimateCheck(false), 1000);
     } else {
       setAnimateCheck(false);
     }
@@ -3064,11 +3613,16 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
               'inline-flex items-center justify-center w-28 h-8 px-2 py-1 rounded-full text-xs relative',
               'status-bubble',
               STATUS_COLORS[task.status] || 'bg-gray-100 text-gray-800',
-              animateCheck ? 'animate-check' : '',
+              animateCheck || task.status === 'complete' ? 'animate-check' : '',
+              task.status === 'complete' ? 'status-complete' : '',
             ].join(' ')}
           >
-            {STATUS_DISPLAY[task.status] || task.status}
-            <Check className="status-check-icon h-4 w-4" />
+            <div className="flex items-center gap-1">
+              {task.status === 'complete' && (
+                <Check className="status-check-icon h-4 w-4" />
+              )}
+              {STATUS_DISPLAY[task.status] || task.status}
+            </div>
           </button>
         </TableCell>
 
@@ -3125,13 +3679,40 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
             >
               <Eye className="h-4 w-4" />
             </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => handleDeleteTask(task.id)}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            <Popover open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="default"
+                  size="sm"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-48 p-2">
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm font-medium">Delete this task?</p>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIsDeleteOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => {
+                        handleDeleteTask(task.id);
+                        setIsDeleteOpen(false);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </TableCell>
       </TableRow>
@@ -3777,7 +4358,7 @@ export {
 import * as React from "react"
 import * as SeparatorPrimitive from "@radix-ui/react-separator"
 
-import { cn } from "@/lib/utils"
+import { cn } from "../../utils/utils"
 
 const Separator = React.forwardRef<
   React.ElementRef<typeof SeparatorPrimitive.Root>,
@@ -3806,7 +4387,7 @@ export { Separator }
 
 --------------------------------------------------------------------------------
 <File: frontend/src/components/ui/skeleton.tsx>
-import { cn } from "@/lib/utils"
+import { cn } from "../../utils/utils"
 
 function Skeleton({
   className,
@@ -4112,194 +4693,178 @@ export function Toaster() {
 }
 
 --------------------------------------------------------------------------------
-<File: frontend/src/components/ui/useToast.tsx>
-// src/components/ui/use-toast.ts
-import * as React from "react"
-import { type ToastActionElement, type ToastProps } from "@/components/ui/toast"
+<File: frontend/src/components/weekly-plan/DayColumn.tsx>
+// src/components/weekly-plan/DayColumn.tsx
+import { useDispatch } from 'react-redux';
+import { Task } from '@/utils/types';
+import TaskCard from '../task/TaskCard';
+import { updateTask } from '@/state/slices/taskSlice';
+import { syncChanges } from '@/state/syncEngine';
 
-const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 3000
-
-type ToasterToast = ToastProps & {
-  id: string
-  title?: React.ReactNode
-  description?: React.ReactNode
-  action?: ToastActionElement
+interface DayColumnProps {
+  date: Date;
+  tasks: Task[];
 }
 
-const actionTypes = {
-  ADD_TOAST: "ADD_TOAST",
-  UPDATE_TOAST: "UPDATE_TOAST",
-  DISMISS_TOAST: "DISMISS_TOAST",
-  REMOVE_TOAST: "REMOVE_TOAST",
-} as const
+const DayColumn = ({ date, tasks }: DayColumnProps) => {
+  const dispatch = useDispatch();
 
-let count = 0
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const taskId = e.dataTransfer.getData('text/task-id');
+    
+    if (!taskId) return;
 
-function genId() {
-  count = (count + 1) % Number.MAX_VALUE
-  return count.toString()
+    const newScheduledDate = date.toISOString();
+
+    // Optimistically update Redux
+    dispatch(updateTask({
+      id: taskId,
+      changes: { scheduledDate: newScheduledDate }
+    }));
+
+    // Sync to backend
+    syncChanges('drag', [{
+      type: 'task',
+      operation: 'update',
+      id: taskId,
+      data: { scheduledDate: newScheduledDate }
+    }]);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  return (
+    <div
+      className="flex-1 p-2 overflow-y-auto"
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+    >
+      <div className="space-y-2">
+        {tasks.map(task => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            isDraggable
+          />
+        ))}
+        {tasks.length === 0 && (
+          <div className="h-20 flex items-center justify-center border-2 border-dashed rounded-lg">
+            <p className="text-sm text-muted-foreground">
+              Drop tasks here
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default DayColumn;
+--------------------------------------------------------------------------------
+<File: frontend/src/components/weekly-plan/UnscheduledTaskSidebar.tsx>
+// src/components/weekly-plan/UnscheduledTasksSidebar.tsx
+import { Task } from '@/utils/types';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import TaskCard from '../task/TaskCard';
+
+interface UnscheduledTasksSidebarProps {
+  tasks: Task[];
 }
 
-type ActionType = typeof actionTypes
+const UnscheduledTasksSidebar = ({ tasks }: UnscheduledTasksSidebarProps) => {
+  return (
+    <Card className="h-full">
+      <CardHeader className="px-4 py-3">
+        <CardTitle className="text-base font-medium">Unscheduled Tasks</CardTitle>
+      </CardHeader>
+      <CardContent className="p-2 overflow-y-auto">
+        <div className="space-y-2">
+          {tasks.map(task => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              isDraggable
+            />
+          ))}
+          {tasks.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center p-4">
+              No unscheduled tasks
+            </p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
 
-type Action =
-  | {
-      type: ActionType["ADD_TOAST"]
-      toast: ToasterToast
-    }
-  | {
-      type: ActionType["UPDATE_TOAST"]
-      toast: Partial<ToasterToast>
-    }
-  | {
-      type: ActionType["DISMISS_TOAST"]
-      toastId?: ToasterToast["id"]
-    }
-  | {
-      type: ActionType["REMOVE_TOAST"]
-      toastId?: ToasterToast["id"]
-    }
+export default UnscheduledTasksSidebar;
+--------------------------------------------------------------------------------
+<File: frontend/src/components/weekly-plan/WeeklyCalendar.tsx>
+// src/components/weekly-plan/WeeklyCalendar.tsx
+import { format, isSameDay } from 'date-fns';
+import { Task } from '@/utils/types';
+import DayColumn from './DayColumn';
 
-interface State {
-  toasts: ToasterToast[]
+interface WeeklyCalendarProps {
+  weekDates: Date[];
+  tasks: Task[];
 }
 
-const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
+const WeeklyCalendar = ({ weekDates, tasks }: WeeklyCalendarProps) => {
+  // Function to get tasks for a specific date
+  const getTasksForDate = (date: Date) => {
+    return tasks.filter(task => {
+      if (!task.scheduledDate) return false;
+      return isSameDay(new Date(task.scheduledDate), date);
+    });
+  };
 
-const addToRemoveQueue = (toastId: string) => {
-  if (toastTimeouts.has(toastId)) {
-    return
-  }
+  return (
+    <div className="h-full border rounded-lg bg-card">
+      <div className="h-full flex divide-x">
+        {weekDates.map(date => {
+          const dayTasks = getTasksForDate(date);
+          const isToday = isSameDay(date, new Date());
+          
+          return (
+            <div 
+              key={date.toISOString()} 
+              className="flex-1 flex flex-col min-w-0"
+            >
+              {/* Day header */}
+              <div className={`
+                px-2 py-3 text-center border-b
+                ${isToday ? 'bg-primary/5' : ''}
+              `}>
+                <div className="text-sm font-medium">
+                  {format(date, 'EEEE')}
+                </div>
+                <div className={`
+                  text-sm mt-1
+                  ${isToday ? 'text-primary font-medium' : 'text-muted-foreground'}
+                `}>
+                  {format(date, 'MMM d')}
+                </div>
+              </div>
 
-  const timeout = setTimeout(() => {
-    toastTimeouts.delete(toastId)
-    dispatch({
-      type: "REMOVE_TOAST",
-      toastId: toastId,
-    })
-  }, TOAST_REMOVE_DELAY)
+              {/* Day content */}
+              <DayColumn 
+                date={date} 
+                tasks={dayTasks}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
-  toastTimeouts.set(toastId, timeout)
-}
-
-export const reducer = (state: State, action: Action): State => {
-  switch (action.type) {
-    case "ADD_TOAST":
-      return {
-        ...state,
-        toasts: [action.toast, ...state.toasts].slice(0, TOAST_LIMIT),
-      }
-
-    case "UPDATE_TOAST":
-      return {
-        ...state,
-        toasts: state.toasts.map((t) =>
-          t.id === action.toast.id ? { ...t, ...action.toast } : t
-        ),
-      }
-
-    case "DISMISS_TOAST": {
-      const { toastId } = action
-
-      if (toastId) {
-        addToRemoveQueue(toastId)
-      } else {
-        state.toasts.forEach((toast) => {
-          addToRemoveQueue(toast.id)
-        })
-      }
-
-      return {
-        ...state,
-        toasts: state.toasts.map((t) =>
-          t.id === toastId || toastId === undefined
-            ? {
-                ...t,
-                open: false,
-              }
-            : t
-        ),
-      }
-    }
-
-    case "REMOVE_TOAST":
-      if (action.toastId === undefined) {
-        return {
-          ...state,
-          toasts: [],
-        }
-      }
-      return {
-        ...state,
-        toasts: state.toasts.filter((t) => t.id !== action.toastId),
-      }
-  }
-}
-
-const listeners: Array<(state: State) => void> = []
-
-let memoryState: State = { toasts: [] }
-
-function dispatch(action: Action) {
-  memoryState = reducer(memoryState, action)
-  listeners.forEach((listener) => {
-    listener(memoryState)
-  })
-}
-
-interface Toast extends Omit<ToasterToast, "id"> {}
-
-function toast({ ...props }: Toast) {
-  const id = genId()
-
-  const update = (props: ToasterToast) =>
-    dispatch({
-      type: "UPDATE_TOAST",
-      toast: { ...props, id },
-    })
-  const dismiss = () => dispatch({ type: "DISMISS_TOAST", toastId: id })
-
-  dispatch({
-    type: "ADD_TOAST",
-    toast: {
-      ...props,
-      id,
-      open: true,
-      onOpenChange: (open) => {
-        if (!open) dismiss()
-      },
-    },
-  })
-
-  return {
-    id: id,
-    dismiss,
-    update,
-  }
-}
-
-function useToast() {
-  const [state, setState] = React.useState<State>(memoryState)
-
-  React.useEffect(() => {
-    listeners.push(setState)
-    return () => {
-      const index = listeners.indexOf(setState)
-      if (index > -1) {
-        listeners.splice(index, 1)
-      }
-    }
-  }, [state])
-
-  return {
-    ...state,
-    toast,
-    dismiss: (toastId?: string) => dispatch({ type: "DISMISS_TOAST", toastId }),
-  }
-}
-
-export { useToast, toast }
+export default WeeklyCalendar;
 --------------------------------------------------------------------------------
 <File: frontend/src/hooks/use-toast.ts>
 "use client"
@@ -4565,18 +5130,92 @@ const MasterListPage = () => {
 export default MasterListPage;
 --------------------------------------------------------------------------------
 <File: frontend/src/pages/WeeklyPlanPage.tsx>
-import React from 'react';
+// src/pages/WeeklyPlanPage.tsx
+import { useState } from 'react';
+import { useSelector } from 'react-redux';
+import { RootState } from '../state/syncEngine';
+import { startOfWeek, addDays, format, addWeeks, subWeeks } from 'date-fns';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Task } from '@/utils/types';
+import UnscheduledTasksSidebar from '@/components/weekly-plan/UnscheduledTaskSidebar';
+import WeeklyCalendar from '@/components/weekly-plan/WeeklyCalendar';
 
 const WeeklyPlanPage = () => {
+  // State for the selected week's start date
+  const [selectedWeekStart, setSelectedWeekStart] = useState(() => 
+    startOfWeek(new Date(), { weekStartsOn: 0 }) // Start on Sunday
+  );
+
+  // Get all tasks from Redux
+  const tasks = useSelector((state: RootState) => state.tasks.items);
+  const tasksArray = Object.values(tasks);
+
+  // Get unscheduled tasks (no scheduledDate)
+  const unscheduledTasks = tasksArray.filter(task => !task.scheduledDate);
+
+  // Navigation handlers
+  const handlePreviousWeek = () => {
+    setSelectedWeekStart(prev => subWeeks(prev, 1));
+  };
+
+  const handleNextWeek = () => {
+    setSelectedWeekStart(prev => addWeeks(prev, 1));
+  };
+
+  // Generate array of dates for the week
+  const weekDates = Array.from({ length: 7 }, (_, i) => 
+    addDays(selectedWeekStart, i)
+  );
+
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Weekly Plan</h1>
-      {/* Content will be added later */}
+    <div className="h-full flex flex-col space-y-4">
+      {/* Header with navigation */}
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-bold">Weekly Plan</h1>
+        <div className="flex items-center space-x-4">
+          <div className="text-lg font-medium">
+            {format(weekDates[0], 'MMM d')} - {format(weekDates[6], 'MMM d, yyyy')}
+          </div>
+          <div className="flex space-x-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handlePreviousWeek}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleNextWeek}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main content area */}
+      <div className="flex-1 flex gap-4 min-h-0">
+        {/* Unscheduled tasks sidebar */}
+        <div className="w-80 flex-shrink-0">
+          <UnscheduledTasksSidebar tasks={unscheduledTasks} />
+        </div>
+
+        {/* Weekly calendar grid */}
+        <div className="flex-1">
+          <WeeklyCalendar 
+            weekDates={weekDates}
+            tasks={tasksArray}
+          />
+        </div>
+      </div>
     </div>
   );
 };
 
-export default WeeklyPlanPage; 
+export default WeeklyPlanPage;
 --------------------------------------------------------------------------------
 <File: frontend/src/state/logger.ts>
 // src/state/logger.ts
@@ -4922,33 +5561,7 @@ const debouncedSyncs = Object.entries(SYNC_CONFIG).reduce(
       // ===== Fire-and-forget: NO `await` here =====
       api.sync(syncRequest)
         .then((response) => {
-          // If the server has new changes, apply them
-          if (response.serverChanges?.length) {
-            response.serverChanges.forEach((change) => {
-              switch (change.operation) {
-                case 'create':
-                  if (change.data) {
-                    store.dispatch(addTask(change.data));
-                  }
-                  break;
-                case 'update':
-                  if (change.data) {
-                    store.dispatch(
-                      updateTask({
-                        id: change.id,
-                        changes: change.data
-                      })
-                    );
-                  }
-                  break;
-                case 'delete':
-                  store.dispatch(deleteTask(change.id));
-                  break;
-              }
-            });
-          }
-
-          // Sync is done
+          // Sync is done - just update sync status
           store.dispatch(setLastSynced(response.syncedAt));
           store.dispatch(setSyncStatus('idle'));
           store.dispatch(resetPendingChanges());
@@ -4957,7 +5570,7 @@ const debouncedSyncs = Object.entries(SYNC_CONFIG).reduce(
         })
         .catch((error) => {
           logSyncFailed(error);
-          // Mark the store as 'error', so top panel can show “sync error”
+          // Mark the store as 'error', so top panel can show "sync error"
           store.dispatch(setSyncStatus('error'));
         });
     }, delay);

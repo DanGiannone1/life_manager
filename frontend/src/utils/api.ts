@@ -1,6 +1,6 @@
 import { Task, UUID } from './types';
 
-const API_BASE_URL = 'http://localhost:5000/api/v1';
+const API_BASE_URL = '/api/v1';
 
 interface ApiResponse<T> {
     success: boolean;
@@ -51,7 +51,7 @@ interface SyncResponse {
 }
 
 class ApiClient {
-    private userId: string = 'temp-user-id'; // TODO: Replace with actual auth
+    private userId: string = 'test-user'; // To Do: Get user ID from request headers
 
     private async request<T>(
         endpoint: string,

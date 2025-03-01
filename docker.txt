@@ -1,0 +1,9 @@
+ az acr login --name djg0container0registry
+ docker build -t project-search:latest .
+ docker tag project-search:latest djg0container0registry.azurecr.io/project-search:latest
+ docker push djg0container0registry.azurecr.io/project-search:latest
+
+az containerapp update --name codewith-project-search --resource-group djg-sandbox --image djg0container0registry.azurecr.io/project-search:latest
+
+
+

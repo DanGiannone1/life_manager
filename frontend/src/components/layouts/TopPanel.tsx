@@ -1,5 +1,5 @@
 import { useSelector } from 'react-redux';
-import { Check, Loader2, AlertCircle } from 'lucide-react';
+import { Check, Loader2, AlertCircle, Settings, LogIn } from 'lucide-react';
 import { RootState } from '../../state/syncEngine';
 import { Button } from '../ui/button';
 
@@ -53,8 +53,9 @@ export function TopPanel() {
                             variant="default"
                             size="sm"
                             aria-label="Settings (coming soon)"
+                            title="Settings"
                         >
-                            Settings
+                            <Settings className="h-4 w-4" />
                         </Button>
 
                         {/* Login/Logout Button - Inactive for now */}
@@ -62,8 +63,9 @@ export function TopPanel() {
                             variant="default"
                             size="sm"
                             aria-label="Login (coming soon)"
+                            title="Logout"
                         >
-                            Login
+                            <LogIn className="h-4 w-4" />
                         </Button>
                     </div>
                 </div>

@@ -17,6 +17,7 @@ import { syncChanges, store } from '@/state/syncEngine';
 import { updateTask, deleteTask } from '@/state/slices/taskSlice';
 import { calculateNextDueDate, createCompletionRecord, shouldResetTask, formatDate } from './Recurrence';
 import '@/components/animations/animations.css';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 
 const STATUS_SEQUENCE = ['notStarted', 'workingOnIt', 'complete'] as const;
 const PRIORITY_SEQUENCE = [0, 20, 40, 60, 80];
@@ -31,6 +32,7 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
   const [showDetails, setShowDetails] = useState(false);
   const [animateCheck, setAnimateCheck] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
   // Priority, Effort, Recurrence strings
   const priorityInfo = getPriorityDisplay(task.priority);
@@ -46,7 +48,7 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
     if (!task.recurrence?.rule) return;
 
     // Calculate next due date
-    const nextDueDate = calculateNextDueDate(task.dueDate, task.recurrence.rule);
+    const nextDueDate = calculateNextDueDate(task.recurrence.rule);
     
     // Create completion record
     const completionRecord = createCompletionRecord(nextDueDate);
@@ -59,9 +61,6 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
 
     // Trigger animations
     setAnimateCheck(true);
-    setTimeout(() => setAnimateCheck(false), 1000);
-
-    // After a delay, reset the task
     setTimeout(() => {
       setIsResetting(true);
 
@@ -93,7 +92,8 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
         description: `${task.title} will be due again on ${formatDate(nextDueDate)}`,
       });
 
-      // Remove resetting state
+      // Reset animations
+      setAnimateCheck(false);
       setTimeout(() => setIsResetting(false), 300);
     }, 1500);
   };
@@ -123,9 +123,9 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
       data: { status: nextStatus }
     }]);
 
+    // Update animation state based on status
     if (nextStatus === 'complete') {
       setAnimateCheck(true);
-      setTimeout(() => setAnimateCheck(false), 1000);
     } else {
       setAnimateCheck(false);
     }
@@ -204,12 +204,16 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
               'inline-flex items-center justify-center w-28 h-8 px-2 py-1 rounded-full text-xs relative',
               'status-bubble',
               STATUS_COLORS[task.status] || 'bg-gray-100 text-gray-800',
-              animateCheck ? 'animate-check' : '',
+              animateCheck || task.status === 'complete' ? 'animate-check' : '',
               task.status === 'complete' ? 'status-complete' : '',
             ].join(' ')}
           >
-            {STATUS_DISPLAY[task.status] || task.status}
-            <Check className="status-check-icon h-4 w-4" />
+            <div className="flex items-center gap-1">
+              {task.status === 'complete' && (
+                <Check className="status-check-icon h-4 w-4" />
+              )}
+              {STATUS_DISPLAY[task.status] || task.status}
+            </div>
           </button>
         </TableCell>
 
@@ -266,13 +270,40 @@ const TaskTableRow = ({ task }: TaskTableRowProps) => {
             >
               <Eye className="h-4 w-4" />
             </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => handleDeleteTask(task.id)}
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            <Popover open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="default"
+                  size="sm"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-48 p-2">
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm font-medium">Delete this task?</p>
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIsDeleteOpen(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => {
+                        handleDeleteTask(task.id);
+                        setIsDeleteOpen(false);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </TableCell>
       </TableRow>

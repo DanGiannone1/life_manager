@@ -3,10 +3,7 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { debounce } from 'lodash';
 import taskReducer, {
-  setTasks,
-  addTask,
-  updateTask,
-  deleteTask
+  setTasks
 } from './slices/taskSlice';
 import syncReducer, {
   setSyncStatus,
@@ -104,33 +101,7 @@ const debouncedSyncs = Object.entries(SYNC_CONFIG).reduce(
       // ===== Fire-and-forget: NO `await` here =====
       api.sync(syncRequest)
         .then((response) => {
-          // If the server has new changes, apply them
-          if (response.serverChanges?.length) {
-            response.serverChanges.forEach((change) => {
-              switch (change.operation) {
-                case 'create':
-                  if (change.data) {
-                    store.dispatch(addTask(change.data));
-                  }
-                  break;
-                case 'update':
-                  if (change.data) {
-                    store.dispatch(
-                      updateTask({
-                        id: change.id,
-                        changes: change.data
-                      })
-                    );
-                  }
-                  break;
-                case 'delete':
-                  store.dispatch(deleteTask(change.id));
-                  break;
-              }
-            });
-          }
-
-          // Sync is done
+          // Sync is done - just update sync status
           store.dispatch(setLastSynced(response.syncedAt));
           store.dispatch(setSyncStatus('idle'));
           store.dispatch(resetPendingChanges());
@@ -139,7 +110,7 @@ const debouncedSyncs = Object.entries(SYNC_CONFIG).reduce(
         })
         .catch((error) => {
           logSyncFailed(error);
-          // Mark the store as 'error', so top panel can show “sync error”
+          // Mark the store as 'error', so top panel can show "sync error"
           store.dispatch(setSyncStatus('error'));
         });
     }, delay);

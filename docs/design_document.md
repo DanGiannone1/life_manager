@@ -28,11 +28,14 @@
    - [State Changes](#state-changes)
    - [Backend Sync Operations](#backend-sync-operations)
 
-5. [Features & Implementation](#features--implementation)
-   - [Sidebar & Top Panel](#sidebar--top-panel)
-   - [Home Page](#home-page)
-   - [Weekly Plan Page](#weekly-plan-page)
-   - [Master List Page](#master-list-page)
+5. [Implementation Details](#implementation-details)
+   - [Project Structure](#project-structure)
+   - [Page Implementations](#page-implementations)
+     - [Master List Page](#master-list-page)
+     - [Weekly Plan Page](#weekly-plan-page)
+     - [Home Page](#home-page)
+   - [Core Components](#core-components)
+     - [Sidebar & Top Panel](#sidebar--top-panel)
    
 6. [Styling & UI](#styling--ui)
     - [High-Level Strategy](#high-level-strategy)
@@ -686,33 +689,66 @@ Each sync operation is logged with:
 
 
 
-## Features & Implementation
+## Implementation Details
 
-### Sidebar & Top Panel
+### Project Structure
+The project follows a well-organized structure detailed in [project_structure.md](./project_structure.md). Key highlights include:
 
-#### Overview
+- Clear separation of frontend and backend code
+- Organized component hierarchy
+- Consistent file naming and organization
+- Centralized configuration files
+- Documentation organization
+
+### Page Implementations
+
+#### Master List Page
+The Master List page implementation is documented in [master_list.md](./master_list.md). It covers:
+
+- Table-based task display
+- Task creation and modification
+- Status updates and animations
+- Priority and effort management
+- Task details dialog
+- Sync operations
+
+#### Weekly Plan Page
+*Detailed design document pending*
+
+The Weekly Plan page will follow similar documentation patterns as the Master List page, with its own specific requirements and implementation details.
+
+#### Home Page
+*Detailed design document pending*
+
+The Home page will follow similar documentation patterns as the Master List page, with its own specific requirements and implementation details.
+
+### Core Components
+
+#### Sidebar & Top Panel
+
+##### Overview
 The application includes a persistent global sidebar (on the left) and a top panel (header bar) that remain visible across all pages. These two navigation and control areas ensure quick access to core features and important indicators (sync status, settings, login/logout, etc.).
 
-#### Goals & Requirements
+##### Goals & Requirements
 
-##### Centralized Navigation
+###### Centralized Navigation
 - Provide quick links to core pages (Home, Weekly Plan, Master List, etc.)
 - Allow easy navigation without refreshing or reloading the application
 
-##### Persistent Visibility
+###### Persistent Visibility
 - Remain visible/accessible at all times, regardless of the active page
 - Collapse or expand the sidebar in response to user preference or screen size
 
-##### Key Controls in Top Panel
+###### Key Controls in Top Panel
 - Settings button for user preferences, theme toggles, or account info
 - Sync/Save Indicator to reflect the real-time sync status from the Redux store
 - Login/Logout button/indicator to manage authentication state
 
-##### Responsive & Accessible
+###### Responsive & Accessible
 - Adapt layout for mobile, tablet, and desktop screen sizes
 - Provide clear focus states, ARIA labels, and keyboard navigation
 
-#### Layout & Components
+##### Layout & Components
 ```
 +------------------------------------------------------------------------+
 | [App Logo / Title]            [Sync Indicator]  [Settings]  [Logout]   |
@@ -724,37 +760,35 @@ The application includes a persistent global sidebar (on the left) and a top pan
 +------------------+-----------------------------------------------------+
 ```
 
-#### Sidebar
+##### Sidebar Implementation
 
-##### Navigation Links
+###### Navigation Links
 - Home
 - Weekly Plan
 - Master List
 
-
-##### User Info / Profile Section 
+###### User Info / Profile Section 
 - Empty for now
 
-##### Collapse/Expand Control
+###### Collapse/Expand Control
 - A button (e.g., a hamburger icon or double-chevron) that toggles the sidebar's width
 - Uses local React state since it only affects the layout
 
-##### Responsive Behavior
+###### Responsive Behavior
 - Mobile: The sidebar may slide in/out over the content
 - Desktop: The sidebar remains docked on the left
 
-##### Implementation Details
+###### Implementation Details
 - Housed in a `<Sidebar>` component, rendered at the same level as the main content
 - All navigation items are stored in an array or config object (e.g., `NAV_LINKS = [{ path: '/home', label: 'Home', icon: ... }, ...]`), then mapped to `<NavLink>` items
 - Uses local React state for collapse state since it only affects the layout
 
+##### Top Panel Implementation
 
-#### Top Panel
-
-##### Position & Layout
+###### Position & Layout
 - Stays at the top of the viewport, spanning the full width
 
-##### Content Components
+###### Content Components
 - App Logo or Title: Left-aligned; navigates back to Home or a landing page
 - Sync/Save Indicator:
   - Reflects the Redux sync state (idle, syncing, error)

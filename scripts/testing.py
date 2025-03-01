@@ -1,5 +1,12 @@
+import os
+import sys
+from pathlib import Path
 
-from cosmos_db import CosmosDBManager
+# Get the absolute path to the project root
+project_root = str(Path(__file__).parent.parent.absolute())
+sys.path.insert(0, project_root)
+
+from backend.cosmos_db import CosmosDBManager
 from datetime import datetime, timedelta, timezone
 import uuid
 
@@ -148,7 +155,44 @@ def generate_sample_tasks():
     
     return tasks
 
-def main():
+def add_field_to_partition(cosmos_manager: CosmosDBManager, partition_key: str, field_name: str, field_value):
+    """Add a new field to all documents within a partition key.
+    
+    Args:
+        cosmos_manager: CosmosDBManager instance
+        partition_key: The partition key value (e.g., user_id)
+        field_name: Name of the new field to add
+        field_value: Value to set for the new field
+    """
+    try:
+        # Query for all items in the partition
+        query = "SELECT * FROM c WHERE c.user_id = @partition_key"
+        items = list(cosmos_manager.container.query_items(
+            query=query,
+            parameters=[{"name": "@partition_key", "value": partition_key}],
+            enable_cross_partition_query=False
+        ))
+        
+        updated_count = 0
+        for item in items:
+            # Add the new field
+            item[field_name] = field_value
+            
+            # Update the document - using user_id as partition key per design doc
+            cosmos_manager.container.replace_item(
+                item=item['id'],
+                body=item
+            )
+            updated_count += 1
+            
+        print(f"Successfully updated {updated_count} documents in partition {partition_key}")
+        return updated_count
+        
+    except Exception as e:
+        print(f"Error updating documents: {str(e)}")
+        raise
+
+def load_test_data():
     try:
         # Initialize the CosmosDB manager
         cosmos_manager = CosmosDBManager()
@@ -187,7 +231,35 @@ def main():
             print(f"Status: {sample_task['status']}")
         
     except Exception as e:
-        print(f"Error in main: {str(e)}")
+        print(f"Error in load_test_data: {str(e)}")
+
+def main():
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("Usage:")
+        print("1. Load test data: python testing.py load_data")
+        print("2. Add field: python testing.py add_field <partition_key> <field_name> <field_value>")
+        sys.exit(1)
+    
+    command = sys.argv[1]
+    
+    if command == "load_data":
+        load_test_data()
+    elif command == "add_field":
+        if len(sys.argv) != 5:
+            print("Usage: python testing.py add_field <partition_key> <field_name> <field_value>")
+            sys.exit(1)
+        
+        partition_key = sys.argv[2]
+        field_name = sys.argv[3]
+        field_value = sys.argv[4]
+        
+        cosmos_manager = CosmosDBManager()
+        add_field_to_partition(cosmos_manager, partition_key, field_name, field_value)
+    else:
+        print(f"Unknown command: {command}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

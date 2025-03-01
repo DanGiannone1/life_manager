@@ -1,17 +1,18 @@
-//src/components/task/Recurrence.ts
+// src/components/task/Recurrence.ts
 
-import { format, addDays, addWeeks, addMonths, addYears } from 'date-fns';
+import { addDays, addWeeks, addMonths, addYears, isBefore } from 'date-fns';
 import { RecurrenceRule, CompletionEntry } from '@/utils/types';
 
 /**
  * Calculate the next due date based on a recurrence rule
+ * Now using the current date as the base for calculations
  */
 export function calculateNextDueDate(
-  currentDueDate: string | undefined,
   rule: RecurrenceRule
 ): string {
-  // Use current due date or today as base
-  const baseDate = currentDueDate ? new Date(currentDueDate) : new Date();
+  // Always use current date as the base for next occurrence
+  const now = new Date();
+  const baseDate = new Date(now);
   
   // Calculate next date based on frequency and interval
   let nextDate: Date;
@@ -19,35 +20,78 @@ export function calculateNextDueDate(
     case 'daily':
       nextDate = addDays(baseDate, rule.interval);
       break;
+      
     case 'weekly':
+      // First, add the weeks
       nextDate = addWeeks(baseDate, rule.interval);
+      
+      // If specific days of week are specified
+      if (rule.daysOfWeek?.length) {
+        // Find the next allowed day of week after our calculated date
+        const currentDay = nextDate.getDay();
+        let daysUntilNext = 7; // Maximum days we might need to add
+        
+        for (const allowedDay of rule.daysOfWeek) {
+          const diff = allowedDay - currentDay;
+          const adjustedDiff = diff <= 0 ? diff + 7 : diff;
+          if (adjustedDiff < daysUntilNext) {
+            daysUntilNext = adjustedDiff;
+          }
+        }
+        
+        nextDate = addDays(nextDate, daysUntilNext);
+      }
       break;
+      
     case 'monthly':
       nextDate = addMonths(baseDate, rule.interval);
+      
+      // If a specific day of month is specified
+      if (rule.dayOfMonth) {
+        // Get the last day of the target month
+        const lastDay = new Date(
+          nextDate.getFullYear(),
+          nextDate.getMonth() + 1,
+          0
+        ).getDate();
+        
+        // Use the specified day, but don't exceed the last day of the month
+        const targetDay = Math.min(rule.dayOfMonth, lastDay);
+        nextDate.setDate(targetDay);
+        
+        // If the calculated date is before current date, move to next month
+        if (isBefore(nextDate, now)) {
+          nextDate = addMonths(nextDate, 1);
+        }
+      }
       break;
+      
     case 'yearly':
       nextDate = addYears(baseDate, rule.interval);
       break;
+      
     default:
       throw new Error(`Unknown frequency: ${rule.frequency}`);
   }
-
-  // Handle day constraints for weekly frequency
-  if (rule.frequency === 'weekly' && rule.daysOfWeek?.length) {
-    // Find the next allowed day of week
-    while (!rule.daysOfWeek.includes(nextDate.getDay())) {
-      nextDate = addDays(nextDate, 1);
+  
+  // Ensure we never return a date in the past
+  if (isBefore(nextDate, now)) {
+    switch (rule.frequency) {
+      case 'daily':
+        nextDate = addDays(now, rule.interval);
+        break;
+      case 'weekly':
+        nextDate = addWeeks(now, rule.interval);
+        break;
+      case 'monthly':
+        nextDate = addMonths(now, rule.interval);
+        break;
+      case 'yearly':
+        nextDate = addYears(now, rule.interval);
+        break;
     }
   }
-
-  // Handle month/day constraints for monthly frequency
-  if (rule.frequency === 'monthly' && rule.dayOfMonth) {
-    // Set to specified day of month, handling end of month cases
-    const maxDays = new Date(nextDate.getFullYear(), nextDate.getMonth() + 1, 0).getDate();
-    const targetDay = Math.min(rule.dayOfMonth, maxDays);
-    nextDate.setDate(targetDay);
-  }
-
+  
   return nextDate.toISOString();
 }
 
@@ -69,7 +113,13 @@ export function createCompletionRecord(
  * Format a date for display
  */
 export function formatDate(date: string | Date): string {
-  return format(new Date(date), 'PPP');
+  if (!date) return '';
+  const d = new Date(date);
+  return d.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
 }
 
 /**

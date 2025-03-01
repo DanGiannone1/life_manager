@@ -184,3 +184,34 @@ life-manager/
 - Task status transitions
 - UI feedback animations
 
+
+
+## Weekly Plan
+
+Current Implementation Structure
+
+Page Level (WeeklyPlanPage.tsx):
+
+
+Manages selected week dates using useState
+Fetches all tasks from Redux
+Splits them into unscheduled vs scheduled tasks
+Handles week navigation
+Renders the main layout with UnscheduledTasksSidebar and WeeklyCalendar
+
+
+Calendar Level (WeeklyCalendar.tsx):
+
+
+Takes weekDates and tasks as props
+Maps over the 7 days of the week
+Uses getTasksForDate to filter tasks for each day
+Renders the column headers and DayColumn components
+
+
+Day Column Level (DayColumn.tsx):
+
+
+Handles drag and drop functionality
+Updates task.scheduledDate when tasks are dropped
+Renders TaskCard components for each task assigned to that day
